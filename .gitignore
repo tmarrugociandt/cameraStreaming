@@ -1,0 +1,48 @@
+# Compiled source #
+###################
+*.class
+
+# Java class files #
+*.jar
+*.war
+*.ear
+
+# Android specific #
+###################
+.idea/
+.gradle/
+/local.properties
+/.externalNativeBuild/
+/.cxx/
+/build/
+/captures/
+/outputs/
+**/build/
+**/captures/
+*.iml
+
+# Kotlin specific #
+###################
+*.kotlin_module
+
+# User-specific files #
+###################
+*.log
+*.hprof
+.DS_Store
+*.orig
+
+# Gradle files #
+###################
+/gradle/
+/gradlew
+/gradlew.bat
+/gradle-wrapper.jar
+/gradle-wrapper.properties
+
+# Misc #
+###################
+.idea/
+.classpath
+.project
+.settings/
