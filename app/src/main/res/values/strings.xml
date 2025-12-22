@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">RootEncoder streamer</string>
+    <string name="app_name">PoC rtmp</string>
     <string name="version">Version: %1$s</string>
     <!--Activities-->
     <string name="old_api">Old API (16 – 20)</string>
