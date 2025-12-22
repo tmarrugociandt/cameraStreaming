@@ -7,7 +7,6 @@ import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import com.ciandt.camerastreaming.R
 import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.video.CameraHelper
 import com.pedro.library.rtmp.RtmpCamera2
@@ -37,7 +36,7 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
         val startButton = findViewById<Button>(R.id.startButton)
         val stopButton = findViewById<Button>(R.id.stopButton)
 
-        // Inicializar rtmpCamera2 con OpenGlView y ConnectChecker
+        // Initialize rtmpCamera2 with OpenGlView and ConnectChecker
         rtmpCamera2 = RtmpCamera2(openGlView, this)
 
         startButton.setOnClickListener {
@@ -90,18 +89,18 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
             if (grantResults.isNotEmpty() &&
                 grantResults[0] == PackageManager.PERMISSION_GRANTED &&
                 grantResults[1] == PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "Permits granted", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Permissions granted", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(this, "Permits denied.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Permissions denied.", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    // Métodos ConnectChecker
+    // ConnectChecker methods
 
     override fun onConnectionStarted(url: String) {}
     override fun onConnectionSuccess() {
-        runOnUiThread { Toast.makeText(this, "Conexión exitosa", Toast.LENGTH_SHORT).show() }
+        runOnUiThread { Toast.makeText(this, "Connection successful", Toast.LENGTH_SHORT).show() }
     }
     override fun onConnectionFailed(reason: String) {
         runOnUiThread {
