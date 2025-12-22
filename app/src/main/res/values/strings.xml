@@ -73,4 +73,8 @@
     <string name="bitmap">Bitmap</string>
     <string name="buffer">Buffer</string>
 
+    <!-- App-specific UI strings -->
+    <string name="start_transmission">Start Transmission</string>
+    <string name="stop_transmission">Stop Transmission</string>
+
 </resources>

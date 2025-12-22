@@ -8,21 +8,24 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <Button
-        android:id="@+id/startButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Start Transmission"
-        android:layout_alignParentBottom="true"
-        android:layout_centerHorizontal="true"
-        android:layout_marginBottom="16dp" />
-
+    <!-- Stop button fixed at the bottom -->
     <Button
         android:id="@+id/stopButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Stop Transmission"
-        android:layout_above="@id/startButton"
+        android:text="@string/stop_transmission"
+        android:layout_alignParentBottom="true"
         android:layout_centerHorizontal="true"
         android:layout_marginBottom="16dp" />
+
+    <!-- Start button positioned above Stop so it is shown first -->
+    <Button
+        android:id="@+id/startButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/start_transmission"
+        android:layout_above="@id/stopButton"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="16dp" />
+
 </RelativeLayout>
