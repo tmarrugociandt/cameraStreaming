@@ -6,7 +6,10 @@ import android.os.Build
 import android.os.Bundle
 import android.view.Surface
 import android.widget.Button
+import android.widget.EditText
 import android.widget.Toast
+import android.text.InputType
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import com.pedro.common.ConnectChecker
@@ -20,10 +23,11 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
     private lateinit var openGlView: OpenGlView
 
     // 🔴 REPLACE WITH YOUR REAL YOUTUBE STREAM KEY
-    private val streamKey = "PUT_YOUR_STREAM_KEY_HERE"
+    // Mutable stream key so it can be provided at runtime via dialog
+    private var streamKey: String = "PUT_YOUR_STREAM_KEY_HERE"
 
-    // ✅ Official RTMPS URL for YouTube
-    private val rtmpUrl = "rtmps://a.rtmps.youtube.com/live2/$streamKey"
+    // rtmp URL is computed from current streamKey
+    private fun getRtmpUrl(): String = "rtmps://a.rtmps.youtube.com/live2/$streamKey"
 
     // 🎥 Recommended YouTube configuration: 720p
     private val width = 1280
@@ -49,15 +53,24 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
 
         rtmpCamera2 = RtmpCamera2(openGlView, this)
 
+        // If there is no stream key configured, prompt for it on start
+        showStreamKeyDialogIfNeeded()
+
         startButton.setOnClickListener {
             if (!rtmpCamera2.isStreaming) {
                 if (checkPermissions()) {
-                    startStream()
+                    // Before starting the stream, ensure a stream key is present
+                    if (streamKey.isBlank() || streamKey == "PUT_YOUR_STREAM_KEY_HERE") {
+                        showStreamKeyDialog()
+                        Toast.makeText(this, "Please enter the YouTube stream key before starting.", Toast.LENGTH_LONG).show()
+                    } else {
+                        startStream()
+                    }
                 } else {
                     requestPermissions()
                 }
             } else {
-                Toast.makeText(this, "Already streaming youtube", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Already streaming YouTube", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -90,7 +103,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
         )
 
         if (!videoPrepared || !audioPrepared) {
-            Toast.makeText(this, "Error preparing stream youtube", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Error preparing YouTube stream", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -106,20 +119,50 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
         openGlView.post {
             try {
                 if (!rtmpCamera2.isStreaming) {
-                    rtmpCamera2.startStream(rtmpUrl)
+                    // Use the URL constructed with the provided streamKey
+                    rtmpCamera2.startStream(getRtmpUrl())
                     Toast.makeText(this, "Starting YouTube Live...", Toast.LENGTH_SHORT).show()
                 }
-            } catch (e: IllegalStateException) {
+            } catch (_: IllegalStateException) {
                 startAttempts++
                 if (startAttempts <= maxStartAttempts) {
                     openGlView.postDelayed({ attemptStartStream() }, startRetryDelayMs)
                 } else {
-                    Toast.makeText(this, "Failed to start stream youtube", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Failed to start YouTube stream", Toast.LENGTH_LONG).show()
                 }
             } catch (t: Throwable) {
-                Toast.makeText(this, "Stream error youtube : ${t.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "YouTube stream error: ${t.message}", Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    // Show dialog to enter stream key if it's empty or still the placeholder
+    private fun showStreamKeyDialogIfNeeded() {
+        if (streamKey.isBlank() || streamKey == "PUT_YOUR_STREAM_KEY_HERE") {
+            showStreamKeyDialog()
+        }
+    }
+
+    private fun showStreamKeyDialog() {
+        val editText = EditText(this)
+        editText.hint = "Stream key"
+        if (streamKey != "PUT_YOUR_STREAM_KEY_HERE") editText.setText(streamKey)
+        editText.inputType = InputType.TYPE_CLASS_TEXT 
+
+        AlertDialog.Builder(this)
+            .setTitle("YouTube Stream Key")
+            .setMessage("Enter your YouTube stream key")
+            .setView(editText)
+            .setPositiveButton("Save") { _, _ ->
+                streamKey = editText.text.toString().trim()
+                if (streamKey.isEmpty()) {
+                    Toast.makeText(this, "Stream key is empty. Stream cannot be started.", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "Stream key saved", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun stopStream() {
@@ -129,7 +172,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
         try {
             rtmpCamera2.stopPreview()
         } catch (_: Exception) {}
-        Toast.makeText(this, "Stream stopped youtube", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "YouTube stream stopped", Toast.LENGTH_SHORT).show()
     }
 
     private fun checkPermissions(): Boolean {
@@ -175,32 +218,32 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
 
     override fun onConnectionSuccess() {
         runOnUiThread {
-            Toast.makeText(this, "Connected to YouTube youtube", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Connected to YouTube", Toast.LENGTH_SHORT).show()
         }
     }
 
     override fun onConnectionFailed(reason: String) {
         runOnUiThread {
-            Toast.makeText(this, "Connection failed youtube: $reason", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Connection failed: $reason", Toast.LENGTH_LONG).show()
             stopStream()
         }
     }
 
     override fun onDisconnect() {
         runOnUiThread {
-            Toast.makeText(this, "Disconnected youtube", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Disconnected from YouTube", Toast.LENGTH_SHORT).show()
         }
     }
 
     override fun onAuthError() {
         runOnUiThread {
-            Toast.makeText(this, "Auth error youtube", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "YouTube auth error", Toast.LENGTH_SHORT).show()
         }
     }
 
     override fun onAuthSuccess() {
         runOnUiThread {
-            Toast.makeText(this, "Auth success youtube", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "YouTube auth success", Toast.LENGTH_SHORT).show()
         }
     }
 }

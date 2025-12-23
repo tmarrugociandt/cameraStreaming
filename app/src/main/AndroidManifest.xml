@@ -28,13 +28,13 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.CameraStreaming.AppCompat">
+            >
 
         </activity>
         <activity
             android:name=".MainActivityYoutube"
             android:exported="true"
-            android:theme="@style/Theme.CameraStreaming.AppCompat" />
+             />
     </application>
 
 </manifest>
