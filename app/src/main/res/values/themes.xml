@@ -6,4 +6,6 @@
     </style>
 
     <style name="Theme.CameraStreaming" parent="Base.Theme.CameraStreaming" />
+
+    <style name="Theme.AppCompat.Light.NoActionBar" parent="android:Theme.Material.Light.NoActionBar" />
 </resources>
