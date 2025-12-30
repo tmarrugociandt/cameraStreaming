@@ -1,9 +1,16 @@
 package com.ciandt.camerastreaming
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.util.Log
+import android.net.TrafficStats
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Surface
 import android.widget.Button
 import android.widget.TextView
@@ -15,10 +22,6 @@ import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.video.CameraHelper
 import com.pedro.library.rtmp.RtmpCamera2
 import com.pedro.library.view.OpenGlView
-import android.net.TrafficStats
-import android.os.Handler
-import android.os.Looper
-import android.util.Log
 import kotlinx.coroutines.*
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -73,6 +76,11 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
 
     private var streamingSince: Long = 0L
     private var fallbackAttempted: Boolean = false
+    // network change handling
+    private lateinit var connectivityManager: ConnectivityManager
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var networkLost: Boolean = false
+    private var hadStreamingBeforeNetworkLoss: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,6 +93,10 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
         bitrateText = findViewById(R.id.bitrateText)
 
         rtmpCamera2 = RtmpCamera2(openGlView, this)
+        // register network callback to handle wifi <-> mobile transitions
+        connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        registerNetworkCallback()
+
         startButton.setOnClickListener {
             if (!rtmpCamera2.isStreaming) {
                 if (checkPermissions()) {
@@ -625,6 +637,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
     override fun onDestroy() {
         super.onDestroy()
         stopNetworkMonitor()
+        unregisterNetworkCallback()
         // don't forcibly stop stream here; if active, stop gracefully
         try {
             if (rtmpCamera2.isStreaming) {
@@ -636,5 +649,96 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
             // any other error stopping the stream shouldn't crash onDestroy
             Log.w("MainActivityYoutube", "Error stopping stream in onDestroy: ${t.message}")
         }
+    }
+
+    private fun registerNetworkCallback() {
+        if (networkCallback != null) return
+        networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onLost(network: Network) {
+                super.onLost(network)
+                uiHandler.post {
+                    Log.i("NetworkCallback", "Network lost")
+                    networkLost = true
+                    hadStreamingBeforeNetworkLoss = tryIsStreaming()
+                    networkStatusText.text = "Network: disconnected"
+                    try { networkStatusText.setBackgroundColor(Color.parseColor("#88FF0000")) } catch (_: Exception) {}
+                    // unbind process network so new sockets use system default (may switch to other transports)
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            connectivityManager.bindProcessToNetwork(null)
+                            Log.i("NetworkCallback", "Process unbound from lost network")
+                        }
+                    } catch (t: Throwable) {
+                        Log.w("NetworkCallback", "unbind process network failed: ${t.message}")
+                    }
+                     // leave preview running; reconnection will trigger on available
+                 }
+             }
+
+             override fun onAvailable(network: Network) {
+                 super.onAvailable(network)
+                 uiHandler.post {
+                     Log.i("NetworkCallback", "Network available")
+                     networkLost = false
+                     networkStatusText.text = getString(R.string.network_connected)
+                     try { networkStatusText.setBackgroundColor(Color.parseColor("#8800AA00")) } catch (_: Exception) {}
+                     // bind process to this network so outgoing sockets use it (helps on network switch)
+                     try {
+                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                             connectivityManager.bindProcessToNetwork(network)
+                             Log.i("NetworkCallback", "Process bound to new network")
+                         }
+                     } catch (t: Throwable) {
+                         Log.w("NetworkCallback", "bind process network failed: ${t.message}")
+                     }
+                     // if we were streaming before the loss or had start attempts, try reconnection
+                     if (hadStreamingBeforeNetworkLoss || startAttempts > 0) {
+                         Log.i("NetworkCallback", "Trigger reconnection after network available")
+                        // try immediate start and schedule background retries
+                        // If we were streaming before the network switch, do a clean restart:
+                        // stopping the RTMP connection first ensures sockets are recreated on the new network.
+                        try {
+                            if (hadStreamingBeforeNetworkLoss) {
+                                try {
+                                    if (rtmpCamera2.isStreaming) {
+                                        Log.i("NetworkCallback", "Stopping RTMP stream to restart on new network")
+                                        // stopStream() cancels reconnection job; we will schedule a new start below
+                                        rtmpCamera2.stopStream()
+                                    }
+                                } catch (t: Throwable) {
+                                    Log.w("NetworkCallback", "Stopping RTMP stream failed: ${t.message}")
+                                }
+                            }
+                            // small delay to allow network binding to settle, then attempt start
+                            uiHandler.postDelayed({
+                                try {
+                                    attemptStartStream()
+                                } catch (t: Throwable) {
+                                    Log.w("NetworkCallback", "Delayed attemptStartStream failed: ${t.message}")
+                                }
+                            }, 700)
+                        } catch (t: Throwable) {
+                            Log.w("NetworkCallback", "Immediate restart flow failed: ${t.message}")
+                        }
+                        // always start background reconnection attempts as a fallback
+                        startReconnectionRetries()
+                     }
+                 }
+             }
+        }
+        try {
+            connectivityManager.registerDefaultNetworkCallback(networkCallback!!)
+        } catch (t: Throwable) {
+            Log.w("NetworkCallback", "registerDefaultNetworkCallback failed: ${t.message}")
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        try {
+            networkCallback?.let { connectivityManager.unregisterNetworkCallback(it) }
+        } catch (t: Throwable) {
+            Log.w("NetworkCallback", "unregisterNetworkCallback failed: ${t.message}")
+        }
+        networkCallback = null
     }
 }
