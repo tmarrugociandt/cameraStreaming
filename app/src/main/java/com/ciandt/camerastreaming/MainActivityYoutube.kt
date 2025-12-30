@@ -22,9 +22,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
     private lateinit var rtmpCamera2: RtmpCamera2
     private lateinit var openGlView: OpenGlView
 
-    // 🔴 REPLACE WITH YOUR REAL YOUTUBE STREAM KEY
-    // Mutable stream key so it can be provided at runtime via dialog
-    private var streamKey: String = "PUT_YOUR_STREAM_KEY_HERE"
+    private var streamKey: String = "bmd8-msjr-zrvg-jzz9-6m10"
 
     // rtmp URL is computed from current streamKey
     private fun getRtmpUrl(): String = "rtmps://a.rtmps.youtube.com/live2/$streamKey"
@@ -52,20 +50,11 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
         val stopButton = findViewById<Button>(R.id.stopButton)
 
         rtmpCamera2 = RtmpCamera2(openGlView, this)
-
-        // If there is no stream key configured, prompt for it on start
-        showStreamKeyDialogIfNeeded()
-
         startButton.setOnClickListener {
             if (!rtmpCamera2.isStreaming) {
                 if (checkPermissions()) {
                     // Before starting the stream, ensure a stream key is present
-                    if (streamKey.isBlank() || streamKey == "PUT_YOUR_STREAM_KEY_HERE") {
-                        showStreamKeyDialog()
-                        Toast.makeText(this, "Please enter the YouTube stream key before starting.", Toast.LENGTH_LONG).show()
-                    } else {
-                        startStream()
-                    }
+                    startStream()
                 } else {
                     requestPermissions()
                 }
@@ -134,35 +123,6 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
                 Toast.makeText(this, "YouTube stream error: ${t.message}", Toast.LENGTH_LONG).show()
             }
         }
-    }
-
-    // Show dialog to enter stream key if it's empty or still the placeholder
-    private fun showStreamKeyDialogIfNeeded() {
-        if (streamKey.isBlank() || streamKey == "PUT_YOUR_STREAM_KEY_HERE") {
-            showStreamKeyDialog()
-        }
-    }
-
-    private fun showStreamKeyDialog() {
-        val editText = EditText(this)
-        editText.hint = "Stream key"
-        if (streamKey != "PUT_YOUR_STREAM_KEY_HERE") editText.setText(streamKey)
-        editText.inputType = InputType.TYPE_CLASS_TEXT 
-
-        AlertDialog.Builder(this)
-            .setTitle("YouTube Stream Key")
-            .setMessage("Enter your YouTube stream key")
-            .setView(editText)
-            .setPositiveButton("Save") { _, _ ->
-                streamKey = editText.text.toString().trim()
-                if (streamKey.isEmpty()) {
-                    Toast.makeText(this, "Stream key is empty. Stream cannot be started.", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(this, "Stream key saved", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
     }
 
     private fun stopStream() {
