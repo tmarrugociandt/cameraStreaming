@@ -77,5 +77,8 @@
     <string name="start_transmission">Start Transmission</string>
     <string name="stop_transmission">Stop Transmission</string>
     <string name="title_activity_launch">LaunchActivity</string>
+    <string name="network_unknown">Network: unknown</string>
+    <string name="bitrate_label">Bitrate: --</string>
+    <string name="network_connected">Network: connected</string>
 
 </resources>

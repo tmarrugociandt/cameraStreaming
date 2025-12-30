@@ -8,6 +8,32 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Network quality indicator (top-left) -->
+    <TextView
+        android:id="@+id/networkStatusText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:text="@string/network_unknown"
+        android:textColor="@android:color/white"
+        android:background="#66000000"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentStart="true"
+        android:layout_margin="8dp" />
+
+    <!-- Current bitrate indicator (top-right) -->
+    <TextView
+        android:id="@+id/bitrateText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:text="@string/bitrate_label"
+        android:textColor="@android:color/white"
+        android:background="#66000000"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentEnd="true"
+        android:layout_margin="8dp" />
+
     <!-- Stop button fixed at the bottom -->
     <Button
         android:id="@+id/stopButton"
