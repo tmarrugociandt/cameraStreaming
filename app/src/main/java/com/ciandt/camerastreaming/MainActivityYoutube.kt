@@ -129,24 +129,83 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
 
 
     private fun startStream() {
-        val encoderRotation = getEncoderRotation()
-        val (videoW, videoH) =
-            if (encoderRotation == 90 || encoderRotation == 270)
-                Pair(height, width)
-            else
-                Pair(width, height)
+        // First try: use the actual measured preview size as encoder resolution so
+        // the encoder receives frames with the same pixel dimensions that the
+        // user sees (avoids letterboxing/pillarboxing). Adjust for encoder rotation.
+        val viewW = openGlView.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+        val viewH = openGlView.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
 
-        Log.d("MainActivityYoutube", "Preparing video ${videoW}x${videoH}@${fps} bitrate=${videoBitrate}")
-        Toast.makeText(this, "Preparing stream...", Toast.LENGTH_SHORT).show()
+        // Try multiple encoder rotations and pick the one that accepts a view-based
+        // resolution (or scaled fallback). This avoids inverted rotation problems
+        // where vertical becomes horizontal on the receiving end.
+        fun even(v: Int) = if (v % 2 == 0) v else v - 1
 
-        val videoPrepared = rtmpCamera2.prepareVideo(
-            videoW,
-            videoH,
-            fps,
-            videoBitrate,
-            encoderRotation,
-            CameraHelper.Facing.BACK.ordinal
-        )
+        val rotationCandidates = listOf(0, 90, 270, 180)
+        var chosenRotation: Int? = null
+        var videoPrepared = false
+
+        val maxSide = 1920
+
+        for (rot in rotationCandidates) {
+            // compute encoder dimensions this rotation would require for the view
+            var candW = if (rot == 90 || rot == 270) viewH else viewW
+            var candH = if (rot == 90 || rot == 270) viewW else viewH
+            candW = even(candW)
+            candH = even(candH)
+
+            try {
+                Log.d("MainActivityYoutube", "Trying prepareVideo with rotation $rot and view size ${candW}x${candH}")
+                if (rtmpCamera2.prepareVideo(candW, candH, fps, videoBitrate, rot, CameraHelper.Facing.BACK.ordinal)) {
+                    videoPrepared = true
+                    chosenRotation = rot
+                    width = if (rot == 90 || rot == 270) candH else candW
+                    height = if (rot == 90 || rot == 270) candW else candH
+                    Log.i("MainActivityYoutube", "prepareVideo accepted with rotation $rot: ${candW}x${candH}")
+                    break
+                }
+            } catch (t: Throwable) {
+                Log.w("MainActivityYoutube", "prepareVideo(view,rot=$rot) threw: ${t.message}")
+            }
+
+            // if direct view size not accepted, try scaled reductions for this rotation
+            var candidateW = candW
+            var candidateH = candH
+            val longest = kotlin.math.max(candidateW, candidateH)
+            if (longest > maxSide) {
+                val scale = maxSide.toFloat() / longest.toFloat()
+                candidateW = even((candidateW * scale).toInt())
+                candidateH = even((candidateH * scale).toInt())
+            }
+
+            var attempts = 0
+            while (!videoPrepared && attempts < 8) {
+                try {
+                    Log.d("MainActivityYoutube", "Trying prepareVideo scaled rot=$rot ${candidateW}x${candidateH}")
+                    if (rtmpCamera2.prepareVideo(candidateW, candidateH, fps, videoBitrate, rot, CameraHelper.Facing.BACK.ordinal)) {
+                        videoPrepared = true
+                        chosenRotation = rot
+                        width = if (rot == 90 || rot == 270) candidateH else candidateW
+                        height = if (rot == 90 || rot == 270) candidateW else candidateH
+                        Log.i("MainActivityYoutube", "prepareVideo accepted scaled rot=$rot: ${candidateW}x${candidateH}")
+                        break
+                    }
+                } catch (t: Throwable) {
+                    Log.w("MainActivityYoutube", "prepareVideo(scaled,rot=$rot) threw: ${t.message}")
+                }
+                candidateW = even((candidateW * 0.75f).toInt())
+                candidateH = even((candidateH * 0.75f).toInt())
+                if (candidateW < 320 || candidateH < 240) break
+                attempts++
+            }
+
+            if (videoPrepared) break
+        }
+
+        if (!videoPrepared) {
+            Log.w("MainActivityYoutube", "Could not prepareVideo with any rotation/candidate for view ${viewW}x${viewH}")
+        } else {
+            Log.d("MainActivityYoutube", "Chosen rotation=$chosenRotation final encoder target=${width}x${height}")
+        }
 
         val audioPrepared = rtmpCamera2.prepareAudio(
             audioBitrate,
@@ -160,11 +219,26 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
             return
         }
 
-        try {
-            rtmpCamera2.startPreview()
-            Log.d("MainActivityYoutube", "Preview started")
-        } catch (e: Exception) {
-            Log.w("MainActivityYoutube", "startPreview exception: ${e.message}")
+        // Start the preview only after the view is posted so the surface is ready.
+        openGlView.post {
+            try {
+                // Diagnostic: log/Toast the encoder and view sizes to detect mismatches
+                val viewW = openGlView.width
+                val viewH = openGlView.height
+                val encW = width
+                val encH = height
+                val rotStr = "${chosenRotation ?: "?"}"
+                Log.d("MainActivityYoutube", "Starting preview. encoder=${encW}x${encH} view=${viewW}x${viewH} chosenRotation=${rotStr}")
+                try {
+                    Toast.makeText(this, "Preview: encoder=${encW}x${encH} view=${viewW}x${viewH} rot=${rotStr}", Toast.LENGTH_LONG).show()
+                } catch (_: Exception) {}
+
+                rtmpCamera2.startPreview()
+                Log.d("MainActivityYoutube", "Preview started (posted)")
+            } catch (e: Exception) {
+                Log.w("MainActivityYoutube", "startPreview exception (posted): ${e.message}")
+                try { Toast.makeText(this, "Preview failed: ${e.message}", Toast.LENGTH_LONG).show() } catch (_: Exception) {}
+            }
         }
 
         startAttempts = 0
@@ -589,6 +663,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
     private fun showAdaptationToast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
+
 
     // 🔌 CONNECT CHECKER CALLBACKS
 
