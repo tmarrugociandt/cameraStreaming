@@ -26,14 +26,6 @@ import kotlinx.coroutines.*
 import java.net.InetSocketAddress
 import java.net.Socket
 import kotlin.math.roundToInt
-import android.util.Base64
-import java.io.File
-import javax.crypto.Cipher
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
-import java.security.SecureRandom
-import java.io.FileOutputStream
 
 class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
 
@@ -90,11 +82,6 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
     private var networkLost: Boolean = false
     private var hadStreamingBeforeNetworkLoss: Boolean = false
 
-    // Encryption (AES-GCM) demo variables
-    private var encryptionEnabled: Boolean = false
-    private var encryptionKey: SecretKey? = null // 256-bit key
-    private val gcmTagLength = 128
-    private val gcmIvLength = 12
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -104,11 +91,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
         val startButton = findViewById<Button>(R.id.startButton)
         val stopButton = findViewById<Button>(R.id.stopButton)
         networkStatusText = findViewById(R.id.networkStatusText)
-        // long-press network status to toggle encryption mode (demo)
-        networkStatusText.setOnLongClickListener {
-            toggleEncryption()
-            true
-        }
+
         bitrateText = findViewById(R.id.bitrateText)
 
         rtmpCamera2 = RtmpCamera2(openGlView, this)
@@ -137,68 +120,13 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
         bitrateText.text = getString(R.string.bitrate_label)
     }
 
-    // --- Encryption helpers (AES-GCM) ---
-    private fun generateRandomKeyBase64(): String {
-        val rnd = SecureRandom()
-        val key = ByteArray(32) // 256-bit
-        rnd.nextBytes(key)
-        return Base64.encodeToString(key, Base64.NO_WRAP)
-    }
 
-    private fun setEncryptionKeyFromBase64(base64Key: String) {
-        try {
-            val keyBytes = Base64.decode(base64Key, Base64.NO_WRAP)
-            encryptionKey = SecretKeySpec(keyBytes, "AES")
-        } catch (t: Throwable) {
-            Log.w("Encryption", "Invalid key base64: ${t.message}")
-            encryptionKey = null
-        }
-    }
 
-    private fun encryptAesGcm(plain: ByteArray): ByteArray? {
-        val key = encryptionKey ?: return null
-        return try {
-            val iv = ByteArray(gcmIvLength)
-            SecureRandom().nextBytes(iv)
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            val spec = GCMParameterSpec(gcmTagLength, iv)
-            cipher.init(Cipher.ENCRYPT_MODE, key, spec)
-            val cipherText = cipher.doFinal(plain)
-            // return IV || ciphertext
-            iv + cipherText
-        } catch (t: Throwable) {
-            Log.w("Encryption", "encrypt failed: ${t.message}")
-            null
-        }
-    }
+
 
     // Demo: append encrypted bytes to a local file (so you can inspect transitively)
-    private fun sendEncryptedDemo(data: ByteArray) {
-        val encrypted = encryptAesGcm(data) ?: return
-        try {
-            val out = File(cacheDir, "encrypted_stream.bin")
-            FileOutputStream(out, true).use { fos -> fos.write(encrypted) }
-            Log.d("Encryption", "Wrote ${encrypted.size} bytes to ${out.absolutePath}")
-        } catch (t: Throwable) {
-            Log.w("Encryption", "write encrypted demo failed: ${t.message}")
-        }
-    }
 
-    private fun toggleEncryption() {
-        encryptionEnabled = !encryptionEnabled
-        if (encryptionEnabled && encryptionKey == null) {
-            // generate a demo key and set it
-            val keyB64 = generateRandomKeyBase64()
-            setEncryptionKeyFromBase64(keyB64)
-            Toast.makeText(this, "Encryption ON (demo). Key (base64): $keyB64", Toast.LENGTH_LONG).show()
-            networkStatusText.append("  [ENCRYPTED]")
-        } else if (!encryptionEnabled) {
-            Toast.makeText(this, "Encryption OFF", Toast.LENGTH_SHORT).show()
-            // remove ENCRYPTED suffix if present
-            val txt = networkStatusText.text.toString().replace("  [ENCRYPTED]", "")
-            networkStatusText.text = txt
-        }
-    }
+
 
     private fun startStream() {
         val encoderRotation = getEncoderRotation()
@@ -261,12 +189,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
                     if (nowStreaming) {
                         streamingSince = System.currentTimeMillis()
                         fallbackAttempted = false
-                        // If encryption demo mode is enabled, write a small encrypted marker to file
-                        if (encryptionEnabled) {
-                            try {
-                                sendEncryptedDemo("STREAM_STARTED at ${streamingSince}".toByteArray())
-                            } catch (_: Exception) {}
-                        }
+
                     } else {
                         // if startStream didn't throw but didn't set streaming, retry a few times
                         startAttempts++
@@ -304,7 +227,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
                                             Toast.makeText(this, "Fallback failed - the stream did not start. Check logs/ConnectChecker.", Toast.LENGTH_LONG).show()
                                         } else {
                                             streamingSince = System.currentTimeMillis()
-                                            if (encryptionEnabled) sendEncryptedDemo("STREAM_STARTED_FALLBACK at ${streamingSince}".toByteArray())
+
                                         }
                                     }, 3000)
                                 }
@@ -328,9 +251,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
             } catch (t: Throwable) {
                 Log.e("MainActivityYoutube", "Throwable starting stream: ${t.message}")
                 Toast.makeText(this, "YouTube stream error: ${t.message}", Toast.LENGTH_LONG).show()
-                if (encryptionEnabled) {
-                    sendEncryptedDemo("START_STREAM_ERROR: ${t.message}".toByteArray())
-                }
+                
                 // attempt retries on other throwables as well
                 startAttempts++
                 if (startAttempts <= maxStartAttempts) {
