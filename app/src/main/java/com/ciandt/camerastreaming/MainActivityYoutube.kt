@@ -135,6 +135,10 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
 
 
     private fun startStream() {
+        // First, check network quality and adapt bitrate BEFORE starting
+        Log.d("MainActivityYoutube", "Checking network quality before stream start...")
+        checkNetworkAndAdaptBitrate()
+
         // First try: use the actual measured preview size as encoder resolution so
         // the encoder receives frames with the same pixel dimensions that the
         // user sees (avoids letterboxing/pillarboxing). Adjust for encoder rotation.
@@ -256,11 +260,65 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
         startNetworkMonitor()
     }
 
+    private fun checkNetworkAndAdaptBitrate() {
+        // Measure current network quality and adapt bitrate accordingly BEFORE streaming
+        try {
+            val rttMs = measureRttMs(StreamingConfig.RTT_MEASURE_HOST, StreamingConfig.RTT_MEASURE_PORT, StreamingConfig.RTT_MEASURE_TIMEOUT_MS)
+            val nowTx = TrafficStats.getTotalTxBytes()
+
+            Log.d("MainActivityYoutube", "Network check - RTT: ${rttMs}ms")
+
+            // If network is very poor, reduce bitrate proactively
+            when {
+                rttMs >= StreamingConfig.RTT_THRESHOLD_VERY_POOR -> {
+                    // Very poor connection - use minimum bitrate
+                    videoBitrate = StreamingConfig.BITRATE_VERY_POOR
+                    width = StreamingConfig.WIDTH_VERY_POOR
+                    height = StreamingConfig.HEIGHT_VERY_POOR
+                    fps = StreamingConfig.FPS_VERY_POOR
+                    Log.w("MainActivityYoutube", "Very poor network detected (RTT>=${StreamingConfig.RTT_THRESHOLD_VERY_POOR}ms). Using minimum bitrate: ${StreamingConfig.BITRATE_VERY_POOR / 1000} kbps")
+                    Toast.makeText(this, "Network very poor - using ${StreamingConfig.BITRATE_VERY_POOR / 1000} kbps", Toast.LENGTH_SHORT).show()
+                }
+                rttMs >= StreamingConfig.RTT_THRESHOLD_FAIR -> {
+                    // Poor connection
+                    videoBitrate = StreamingConfig.BITRATE_POOR
+                    width = StreamingConfig.WIDTH_POOR
+                    height = StreamingConfig.HEIGHT_POOR
+                    fps = StreamingConfig.FPS_POOR
+                    Log.w("MainActivityYoutube", "Poor network detected (RTT>=${StreamingConfig.RTT_THRESHOLD_FAIR}ms). Using ${StreamingConfig.BITRATE_POOR / 1000} kbps")
+                    Toast.makeText(this, "Network poor - using ${StreamingConfig.BITRATE_POOR / 1000} kbps", Toast.LENGTH_SHORT).show()
+                }
+                rttMs >= StreamingConfig.RTT_THRESHOLD_GOOD -> {
+                    // Fair connection
+                    videoBitrate = StreamingConfig.BITRATE_FAIR
+                    width = StreamingConfig.WIDTH_FAIR
+                    height = StreamingConfig.HEIGHT_FAIR
+                    fps = StreamingConfig.FPS_FAIR
+                    Log.w("MainActivityYoutube", "Fair network detected (RTT>=${StreamingConfig.RTT_THRESHOLD_GOOD}ms). Using ${StreamingConfig.BITRATE_FAIR / 1000} kbps")
+                    Toast.makeText(this, "Network fair - using ${StreamingConfig.BITRATE_FAIR / 1000} kbps", Toast.LENGTH_SHORT).show()
+                }
+                rttMs >= StreamingConfig.RTT_THRESHOLD_EXCELLENT -> {
+                    // Good connection
+                    videoBitrate = StreamingConfig.BITRATE_GOOD
+                    Log.i("MainActivityYoutube", "Good network detected. Using ${StreamingConfig.BITRATE_GOOD / 1000} kbps")
+                }
+                else -> {
+                    // Excellent connection - use recommended
+                    videoBitrate = StreamingConfig.BITRATE_EXCELLENT
+                    Log.i("MainActivityYoutube", "Excellent network detected. Using ${StreamingConfig.BITRATE_EXCELLENT / 1000} kbps")
+                }
+            }
+            bitrateText.text = "Bitrate: ${videoBitrate / 1000} kbps"
+        } catch (t: Throwable) {
+            Log.w("MainActivityYoutube", "Network check failed: ${t.message}, proceeding with default bitrate")
+        }
+    }
+
     private fun attemptStartStream() {
         openGlView.post {
             try {
                 if (!rtmpCamera2.isStreaming) {
-                    Log.d("MainActivityYoutube", "Calling rtmpCamera2.startStream with URL=${getRtmpUrl()}")
+                    Log.d("MainActivityYoutube", "Calling rtmpCamera2.startStream with URL=${getRtmpUrl()} | Bitrate=${videoBitrate / 1000}kbps | Resolution=${width}x${height}@${fps}fps")
                     rtmpCamera2.startStream(getRtmpUrl())
                     // registrar si quedó en streaming
                     val nowStreaming = try { rtmpCamera2.isStreaming } catch (_: Exception) { false }
@@ -511,41 +569,45 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
         // Update lag indicator with color based on latency
         lagIndicatorText.text = "Lag: ${rttMs}ms"
         val lagColor = when {
-            rttMs < 50 -> "#8800AA00"        // Excellent (green)
-            rttMs < 100 -> "#88FFD700"       // Good (yellow)
-            rttMs < 200 -> "#88FF8C00"       // Fair (orange)
+            rttMs < StreamingConfig.RTT_THRESHOLD_EXCELLENT -> "#8800AA00"        // Excellent (green)
+            rttMs < StreamingConfig.RTT_THRESHOLD_GOOD -> "#88FFD700"       // Good (yellow)
+            rttMs < StreamingConfig.RTT_THRESHOLD_FAIR -> "#88FF8C00"       // Fair (orange)
             else -> "#88FF0000"              // Poor (red)
         }
         lagIndicatorText.setBackgroundColor(Color.parseColor(lagColor))
 
-        // decide adaptation
+        // decide adaptation - BUT only if stream has been stable
         val now = System.currentTimeMillis()
-        // don't adapt if stream hasn't been active for at least 8s (give time to start)
-        if (streamingSince == 0L || now - streamingSince < 8000L) {
+        // don't adapt if stream hasn't been active for at least stabilization time (give time to stabilize)
+        if (streamingSince == 0L || now - streamingSince < StreamingConfig.STABILIZATION_TIME_MS) {
             Log.d("Adaptation", "Skipping adaptation because stream not active long enough: streamingSince=$streamingSince")
             return
         }
 
         if (now - lastAdaptationTime < adaptationCooldownMs) return
 
+        // IMPORTANT: Keep transmission alive even with very poor network
+        // Reduce quality gradually, but NEVER stop sending frames
         when (readable) {
             "Excellent" -> {
-                // try to increase to high profile 2500-4000 kbps
+                // try to increase to high profile 3500 kbps
                 val target = 3500 * 1000
-                attemptAdaptation(target, width, height, 30)
+                attemptAdaptation(target, StreamingConfig.WIDTH_EXCELLENT, StreamingConfig.HEIGHT_EXCELLENT, StreamingConfig.FPS_EXCELLENT)
             }
             "Good" -> {
-                val target = 2000 * 1000
-                attemptAdaptation(target, width, height, 30)
+                val target = StreamingConfig.BITRATE_GOOD
+                attemptAdaptation(target, StreamingConfig.WIDTH_GOOD, StreamingConfig.HEIGHT_GOOD, StreamingConfig.FPS_GOOD)
             }
             "Fair" -> {
-                // lower bitrate and possibly lower resolution
-                val target = 1000 * 1000
-                attemptAdaptation(target, 960, 540, 24)
+                // lower bitrate but keep streaming
+                val target = StreamingConfig.BITRATE_FAIR
+                attemptAdaptation(target, StreamingConfig.WIDTH_FAIR, StreamingConfig.HEIGHT_FAIR, StreamingConfig.FPS_FAIR)
             }
             "Poor" -> {
-                val target = 500 * 1000
-                attemptAdaptation(target, 640, 360, 15)
+                // VERY low bitrate to keep connection alive
+                // This ensures frames are NOT lost, just degraded quality
+                val target = StreamingConfig.BITRATE_POOR
+                attemptAdaptation(target, StreamingConfig.WIDTH_POOR, StreamingConfig.HEIGHT_POOR, StreamingConfig.FPS_POOR)
             }
         }
     }
