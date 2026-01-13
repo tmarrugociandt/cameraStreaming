@@ -1,6 +1,7 @@
 package com.ciandt.camerastreaming
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
@@ -24,20 +25,16 @@ import com.pedro.library.view.OpenGlView
 import kotlinx.coroutines.*
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.roundToInt
 
-class MainActivity : AppCompatActivity(), ConnectChecker {
+class MainActivityCopy : AppCompatActivity(), ConnectChecker {
 
     private lateinit var rtmpCamera2: RtmpCamera2
     private lateinit var openGlView: OpenGlView
 
     private lateinit var networkStatusText: TextView
     private lateinit var bitrateText: TextView
-    private lateinit var streamingTimerText: TextView
-    private lateinit var lagIndicatorText: TextView
 
     private val rtmpUrl = "rtmp://18.130.36.142:1935/demo/live"
 
@@ -77,7 +74,6 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
     private var streamingSince: Long = 0L
     private var fallbackAttempted: Boolean = false
 
-    private var timerJob: Job? = null
     // network change handling
     private lateinit var connectivityManager: ConnectivityManager
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -93,10 +89,11 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
         val startButton = findViewById<Button>(R.id.startButton)
         val stopButton = findViewById<Button>(R.id.stopButton)
         networkStatusText = findViewById(R.id.networkStatusText)
-
         bitrateText = findViewById(R.id.bitrateText)
-        streamingTimerText = findViewById(R.id.streamingTimerText)
-        lagIndicatorText = findViewById(R.id.lagIndicatorText)
+
+        // Do not override layoutParams at runtime — keep the XML params (avoids casting issues with different parent layouts)
+
+        // Do not apply manual rotation; let OpenGlView/library handle preview orientation
 
         // Initialize rtmpCamera2 with OpenGlView and ConnectChecker
         rtmpCamera2 = RtmpCamera2(openGlView, this)
@@ -108,7 +105,29 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
         startButton.setOnClickListener {
             if (!rtmpCamera2.isStreaming) {
                 if (checkPermissions()) {
-                    startStream()
+                    // Use encoder rotation mapping (device -> encoder) expected by the library
+                    val encoderRotation = getDeviceRotationDegrees()
+                    // swap width/height if encoder expects portrait orientation
+                    val (videoW, videoH) = if (encoderRotation == 90 || encoderRotation == 270) Pair(height, width) else Pair(width, height)
+
+                    val preparedVideo = rtmpCamera2.prepareVideo(videoW, videoH, fps, videoBitrate, encoderRotation, CameraHelper.Facing.BACK.ordinal)
+                    val preparedAudio = rtmpCamera2.prepareAudio(audioBitrate, sampleRate, isStereo)
+
+                    if (preparedVideo && preparedAudio) {
+                        // start preview so encoders receive frames
+                        try {
+                            rtmpCamera2.startPreview()
+                        } catch (_: Exception) {
+                            // ignore: preview might already be started or surface not ready
+                        }
+                        // reset attempts and try to start stream with retries
+                        startAttempts = 0
+                        openGlView.postDelayed({ attemptStartStream() }, startRetryDelayMs)
+                        // start network monitor
+                        startNetworkMonitor()
+                    } else {
+                        Toast.makeText(this, "Error preparing the stream", Toast.LENGTH_SHORT).show()
+                    }
                 } else {
                     requestPermissions()
                 }
@@ -118,265 +137,63 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
         }
 
         stopButton.setOnClickListener {
-            stopStream()
+            if (rtmpCamera2.isStreaming) {
+                rtmpCamera2.stopStream()
+            }
+            try {
+                rtmpCamera2.stopPreview()
+            } catch (_: Exception) { }
+            // stop monitor
+            stopNetworkMonitor()
+            Toast.makeText(this, "Transmission stopped.", Toast.LENGTH_SHORT).show()
         }
 
         // initialize bitrate indicator
         bitrateText.text = getString(R.string.bitrate_label)
-    }
 
-    private fun startStream() {
-        // First, check network quality and adapt bitrate BEFORE starting
-        Log.d("MainActivity", "Checking network quality before stream start...")
-        checkNetworkAndAdaptBitrate()
-
-        // First try: use the actual measured preview size as encoder resolution so
-        // the encoder receives frames with the same pixel dimensions that the
-        // user sees (avoids letterboxing/pillarboxing). Adjust for encoder rotation.
-        val viewW = openGlView.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
-        val viewH = openGlView.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
-
-        // Try multiple encoder rotations and pick the one that accepts a view-based
-        // resolution (or scaled fallback). This avoids inverted rotation problems
-        // where vertical becomes horizontal on the receiving end.
-        fun even(v: Int) = if (v % 2 == 0) v else v - 1
-
-        val rotationCandidates = listOf(0, 90, 270, 180)
-        var chosenRotation: Int? = null
-        var videoPrepared = false
-
-        val maxSide = 1920
-
-        for (rot in rotationCandidates) {
-            // compute encoder dimensions this rotation would require for the view
-            var candW = if (rot == 90 || rot == 270) viewH else viewW
-            var candH = if (rot == 90 || rot == 270) viewW else viewH
-            candW = even(candW)
-            candH = even(candH)
-
-            try {
-                Log.d("MainActivity", "Trying prepareVideo with rotation $rot and view size ${candW}x${candH}")
-                if (rtmpCamera2.prepareVideo(candW, candH, fps, videoBitrate, rot, CameraHelper.Facing.BACK.ordinal)) {
-                    videoPrepared = true
-                    chosenRotation = rot
-                    width = if (rot == 90 || rot == 270) candH else candW
-                    height = if (rot == 90 || rot == 270) candW else candH
-                    Log.i("MainActivity", "prepareVideo accepted with rotation $rot: ${candW}x${candH}")
-                    break
-                }
-            } catch (t: Throwable) {
-                Log.w("MainActivity", "prepareVideo(view,rot=$rot) threw: ${t.message}")
-            }
-
-            // if direct view size not accepted, try scaled reductions for this rotation
-            var candidateW = candW
-            var candidateH = candH
-            val longest = max(candidateW, candidateH)
-            if (longest > maxSide) {
-                val scale = maxSide.toFloat() / longest.toFloat()
-                candidateW = even((candidateW * scale).toInt())
-                candidateH = even((candidateH * scale).toInt())
-            }
-
-            var attempts = 0
-            while (!videoPrepared && attempts < 8) {
-                try {
-                    Log.d("MainActivity", "Trying prepareVideo scaled rot=$rot ${candidateW}x${candidateH}")
-                    if (rtmpCamera2.prepareVideo(candidateW, candidateH, fps, videoBitrate, rot, CameraHelper.Facing.BACK.ordinal)) {
-                        videoPrepared = true
-                        chosenRotation = rot
-                        width = if (rot == 90 || rot == 270) candidateH else candidateW
-                        height = if (rot == 90 || rot == 270) candidateW else candidateH
-                        Log.i("MainActivity", "prepareVideo accepted scaled rot=$rot: ${candidateW}x${candidateH}")
-                        break
-                    }
-                } catch (t: Throwable) {
-                    Log.w("MainActivity", "prepareVideo(scaled,rot=$rot) threw: ${t.message}")
-                }
-                candidateW = even((candidateW * 0.75f).toInt())
-                candidateH = even((candidateH * 0.75f).toInt())
-                if (candidateW < 320 || candidateH < 240) break
-                attempts++
-            }
-
-            if (videoPrepared) break
-        }
-
-        if (!videoPrepared) {
-            Log.w("MainActivity", "Could not prepareVideo with any rotation/candidate for view ${viewW}x${viewH}")
-        } else {
-            Log.d("MainActivity", "Chosen rotation=$chosenRotation final encoder target=${width}x${height}")
-        }
-
-        val audioPrepared = rtmpCamera2.prepareAudio(
-            audioBitrate,
-            sampleRate,
-            isStereo
-        )
-
-        if (!videoPrepared || !audioPrepared) {
-            Log.w("MainActivity", "prepareVideo/Audio failed: videoPrepared=$videoPrepared audioPrepared=$audioPrepared")
-            Toast.makeText(this, "Error preparing stream", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        // Start the preview only after the view is posted so the surface is ready.
-        openGlView.post {
-            try {
-                // Diagnostic: log/Toast the encoder and view sizes to detect mismatches
-                val viewW = openGlView.width
-                val viewH = openGlView.height
-                val encW = width
-                val encH = height
-                val rotStr = "${chosenRotation ?: "?"}"
-                Log.d("MainActivity", "Starting preview. encoder=${encW}x${encH} view=${viewW}x${viewH} chosenRotation=${rotStr}")
-                try {
-                    Toast.makeText(this, "Preview: encoder=${encW}x${encH} view=${viewW}x${viewH} rot=${rotStr}", Toast.LENGTH_LONG).show()
-                } catch (_: Exception) {}
-
-                rtmpCamera2.startPreview()
-                Log.d("MainActivity", "Preview started (posted)")
-            } catch (e: Exception) {
-                Log.w("MainActivity", "startPreview exception (posted): ${e.message}")
-                try { Toast.makeText(this, "Preview failed: ${e.message}", Toast.LENGTH_LONG).show() } catch (_: Exception) {}
-            }
-        }
-
-        startAttempts = 0
-        // Try to start immediately and also with a delayed retry
-        attemptStartStream()
-        openGlView.postDelayed({ attemptStartStream() }, startRetryDelayMs)
-
-        // start network monitor
-        startNetworkMonitor()
-    }
-
-    private fun checkNetworkAndAdaptBitrate() {
-        // Measure current network quality and adapt bitrate accordingly BEFORE streaming
-        try {
-            val rttMs = measureRttMs(StreamingConfig.RTT_MEASURE_HOST, StreamingConfig.RTT_MEASURE_PORT, StreamingConfig.RTT_MEASURE_TIMEOUT_MS)
-
-            Log.d("MainActivity", "Network check - RTT: ${rttMs}ms")
-
-            // If network is very poor, reduce bitrate proactively
-            when {
-                rttMs >= StreamingConfig.RTT_THRESHOLD_VERY_POOR -> {
-                    // Very poor connection - use minimum bitrate
-                    videoBitrate = StreamingConfig.BITRATE_VERY_POOR
-                    width = 480
-                    height = 272
-                    fps = 12
-                    Log.w("MainActivity", "Very poor network detected (RTT>=${StreamingConfig.RTT_THRESHOLD_VERY_POOR}ms). Using minimum bitrate: ${videoBitrate / 1000} kbps")
-                    Toast.makeText(this, "Network very poor - using ${videoBitrate / 1000} kbps", Toast.LENGTH_SHORT).show()
-                }
-                rttMs >= StreamingConfig.RTT_THRESHOLD_POOR -> {
-                    // Poor connection
-                    videoBitrate = StreamingConfig.BITRATE_POOR
-                    width = 640
-                    height = 360
-                    fps = 15
-                    Log.w("MainActivity", "Poor network detected (RTT>=${StreamingConfig.RTT_THRESHOLD_POOR}ms). Using ${videoBitrate / 1000} kbps")
-                    Toast.makeText(this, "Network poor - using ${videoBitrate / 1000} kbps", Toast.LENGTH_SHORT).show()
-                }
-                rttMs >= StreamingConfig.RTT_THRESHOLD_FAIR -> {
-                    // Fair connection
-                    videoBitrate = StreamingConfig.BITRATE_FAIR
-                    width = 960
-                    height = 540
-                    fps = 24
-                    Log.w("MainActivity", "Fair network detected (RTT>=${StreamingConfig.RTT_THRESHOLD_FAIR}ms). Using ${videoBitrate / 1000} kbps")
-                    Toast.makeText(this, "Network fair - using ${videoBitrate / 1000} kbps", Toast.LENGTH_SHORT).show()
-                }
-                rttMs >= StreamingConfig.RTT_THRESHOLD_GOOD -> {
-                    // Good connection
-                    videoBitrate = StreamingConfig.BITRATE_GOOD
-                    Log.i("MainActivity", "Good network detected. Using ${videoBitrate / 1000} kbps")
-                }
-                else -> {
-                    // Excellent connection - use recommended
-                    videoBitrate = StreamingConfig.BITRATE_EXCELLENT
-                    Log.i("MainActivity", "Excellent network detected. Using ${videoBitrate / 1000} kbps")
-                }
-            }
-            bitrateText.text = "Bitrate: ${videoBitrate / 1000} kbps"
-        } catch (t: Throwable) {
-            Log.w("MainActivity", "Network check failed: ${t.message}, proceeding with default bitrate")
-        }
-    }
-
-    private fun stopStream() {
-        // stop monitor
-        stopNetworkMonitor()
-        // stop timer
-        stopStreamingTimer()
-
-        if (rtmpCamera2.isStreaming) {
-            rtmpCamera2.stopStream()
-        }
-        fallbackAttempted = false
-        // stop any reconnection loop when user explicitly stops
-        reconnectionJob?.cancel()
-        reconnectionJob = null
-        reconnectionAttempts = 0
-        try {
-            rtmpCamera2.stopPreview()
-        } catch (_: Exception) {}
-        Toast.makeText(this, "Transmission stopped.", Toast.LENGTH_SHORT).show()
     }
 
     private fun attemptStartStream() {
         openGlView.post {
             try {
                 if (!rtmpCamera2.isStreaming) {
-                    Log.d("MainActivity", "Calling rtmpCamera2.startStream with URL=${rtmpUrl} | Bitrate=${videoBitrate / 1000}kbps | Resolution=${width}x${height}@${fps}fps")
+                    Log.d("MainActivity", "Calling rtmpCamera2.startStream with URL=${rtmpUrl}")
                     rtmpCamera2.startStream(rtmpUrl)
-
                     val nowStreaming = try { rtmpCamera2.isStreaming } catch (_: Exception) { false }
                     Log.d("MainActivity", "startStream() returned, isStreaming=$nowStreaming")
                     Toast.makeText(this, "Starting transmission... isStreaming=$nowStreaming", Toast.LENGTH_SHORT).show()
                     if (nowStreaming) {
                         streamingSince = System.currentTimeMillis()
-                        startStreamingTimer()
                         fallbackAttempted = false
-
                     } else {
-                        // if startStream didn't throw but didn't set streaming, retry a few times
                         startAttempts++
-                        Log.w("MainActivity", "startStream did not set isStreaming=true, attempt=$startAttempts")
                         if (startAttempts <= maxStartAttempts) {
                             openGlView.postDelayed({ attemptStartStream() }, startRetryDelayMs)
                         } else {
-                            Log.w("MainActivity", "Exceeded start attempts, will try reconnection in background")
                             startReconnectionRetries()
                         }
                     }
 
-                    // schedule a check after 3s to verify streaming state and offer diagnostics
                     uiHandler.postDelayed({
                         val s = try { rtmpCamera2.isStreaming } catch (_: Exception) { false }
-                        Log.d("MainActivity", "Delayed check: isStreaming=$s fallbackAttempted=$fallbackAttempted")
                         if (!s) {
                             Toast.makeText(this, "WARNING: the stream did not start (isStreaming=false). Attempting fallback if applicable...", Toast.LENGTH_LONG).show()
-                            // Note: fallback logic for rtmp is already same as original, no rtmps conversion needed
                             if (!fallbackAttempted) {
+                                // attempt a non-SSL rtmp fallback if possible
                                 val alt = rtmpUrl.replaceFirst("rtmps://", "rtmp://")
                                 if (alt != rtmpUrl) {
-                                    Log.i("MainActivity", "Attempting fallback to non-SSL RTMP: $alt")
                                     try {
                                         fallbackAttempted = true
                                         rtmpCamera2.startStream(alt)
                                     } catch (ex: Throwable) {
                                         Log.e("MainActivity", "Fallback startStream failed: ${ex.message}")
                                     }
-                                    // schedule another check
                                     uiHandler.postDelayed({
                                         val s2 = try { rtmpCamera2.isStreaming } catch (_: Exception) { false }
-                                        Log.d("MainActivity", "Fallback delayed check: isStreaming=$s2")
                                         if (!s2) {
                                             Toast.makeText(this, "Fallback failed - the stream did not start. Check logs/ConnectChecker.", Toast.LENGTH_LONG).show()
                                         } else {
                                             streamingSince = System.currentTimeMillis()
-                                            startStreamingTimer()
                                         }
                                     }, 3000)
                                 }
@@ -385,23 +202,17 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
                     }, 3000)
 
                 } else {
-                    Log.d("MainActivity", "Already streaming (isStreaming=true)")
                     streamingSince = streamingSince.takeIf { it != 0L } ?: System.currentTimeMillis()
                 }
             } catch (e: IllegalStateException) {
                 startAttempts++
-                Log.w("MainActivity", "IllegalStateException starting stream attempt=$startAttempts: ${e.message}")
                 if (startAttempts <= maxStartAttempts) {
                     openGlView.postDelayed({ attemptStartStream() }, startRetryDelayMs)
                 } else {
-                    Log.w("MainActivity", "Exceeded start attempts due to IllegalStateException, starting background reconnection")
                     startReconnectionRetries()
                 }
             } catch (t: Throwable) {
-                Log.e("MainActivity", "Throwable starting stream: ${t.message}")
-                Toast.makeText(this, "Stream error: ${t.message}", Toast.LENGTH_LONG).show()
-
-                // attempt retries on other throwables as well
+                Toast.makeText(this, "Failed to start stream: ${t.message}", Toast.LENGTH_LONG).show()
                 startAttempts++
                 if (startAttempts <= maxStartAttempts) {
                     openGlView.postDelayed({ attemptStartStream() }, startRetryDelayMs)
@@ -410,6 +221,11 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // No manual rotation on resume; library manages preview orientation
     }
 
     private fun checkPermissions(): Boolean {
@@ -428,7 +244,9 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
     }
 
     private fun getDeviceRotationDegrees(): Int {
+        // Get rotation in a way that avoids calling the deprecated defaultDisplay on newer APIs
         val rotation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Activity.display is available and not deprecated on newer APIs
             this.display?.rotation ?: Surface.ROTATION_0
         } else {
             @Suppress("DEPRECATION")
@@ -444,7 +262,7 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
         return (90 - displayDegrees + 360) % 360
     }
 
-    // Network monitor & adaptation
+    // ------------------ Network monitor & adaptation ------------------
 
     private fun startNetworkMonitor() {
         stopNetworkMonitor()
@@ -463,7 +281,7 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
                 val rttMs = measureRttMs("8.8.8.8", 53, 1000)
                 val loss = if (throughput == 0 && rttMs >= 1000) 1.0 else 0.0
 
-                val streamingState = try { if (this@MainActivity::rtmpCamera2.isInitialized) rtmpCamera2.isStreaming else false } catch (_: Exception) { false }
+                val streamingState = try { if (this@MainActivityCopy::rtmpCamera2.isInitialized) rtmpCamera2.isStreaming else false } catch (_: Exception) { false }
 
                 Log.d("NetMonitor", "throughput=$throughput B/s rtt=${rttMs}ms loss=$loss isStreaming=$streamingState streamingSince=$streamingSince")
 
@@ -487,19 +305,19 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
                 val end = System.currentTimeMillis()
                 return end - start
             }
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
             return timeoutMs.toLong()
         }
     }
 
-    private fun updateNetworkUiAndAdapt(throughputBps: Long, rttMs: Long, @Suppress("UNUSED_PARAMETER") packetLoss: Double) {
+    private fun updateNetworkUiAndAdapt(throughputBps: Long, rttMs: Long, packetLoss: Double) {
         val readable = when {
             throughputBps >= thresholdExcellent -> "Excellent"
             throughputBps >= thresholdGood -> "Good"
             throughputBps >= thresholdPoor -> "Fair"
             else -> "Poor"
         }
-        networkStatusText.text = "Network: $readable"
+        networkStatusText.text = "Network: $readable (rtt=${rttMs}ms)"
         when (readable) {
             "Excellent" -> networkStatusText.setBackgroundColor(Color.parseColor("#8800AA00"))
             "Good" -> networkStatusText.setBackgroundColor(Color.parseColor("#88FFD700"))
@@ -509,27 +327,13 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
         }
         bitrateText.text = "Bitrate: ${videoBitrate / 1000} kbps"
 
-        // Update lag indicator with color based on latency
-        lagIndicatorText.text = "Lag: ${rttMs}ms"
-        val lagColor = when {
-            rttMs < StreamingConfig.RTT_THRESHOLD_EXCELLENT -> "#8800AA00"
-            rttMs < StreamingConfig.RTT_THRESHOLD_GOOD -> "#88FFD700"
-            rttMs < StreamingConfig.RTT_THRESHOLD_FAIR -> "#88FF8C00"
-            else -> "#88FF0000"
-        }
-        lagIndicatorText.setBackgroundColor(Color.parseColor(lagColor))
-
         val now = System.currentTimeMillis()
-        if (streamingSince == 0L || now - streamingSince < 8000L) {
-            Log.d("Adaptation", "Skipping adaptation because stream not active long enough: streamingSince=$streamingSince")
-            return
-        }
-
+        if (streamingSince == 0L || now - streamingSince < 8000L) return
         if (now - lastAdaptationTime < adaptationCooldownMs) return
 
         when (readable) {
-            "Excellent" -> attemptAdaptation(3500 * 1000, 1280, 720, 30)
-            "Good" -> attemptAdaptation(2000 * 1000, 1280, 720, 30)
+            "Excellent" -> attemptAdaptation(3500 * 1000, width, height, 30)
+            "Good" -> attemptAdaptation(2000 * 1000, width, height, 30)
             "Fair" -> attemptAdaptation(1000 * 1000, 960, 540, 24)
             "Poor" -> attemptAdaptation(500 * 1000, 640, 360, 15)
         }
@@ -620,7 +424,7 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
     private fun trySetBitrateOnFly(targetBitrate: Int): Boolean {
         return try {
             val cls = rtmpCamera2::class.java
-            val method = try { cls.getMethod("setVideoBitrateOnFly", Int::class.javaPrimitiveType) } catch (_: NoSuchMethodException) { null }
+            val method = try { cls.getMethod("setVideoBitrateOnFly", Int::class.javaPrimitiveType) } catch (e: NoSuchMethodException) { null }
             if (method != null) {
                 method.invoke(rtmpCamera2, targetBitrate)
                 Log.i("Adaptation", "setVideoBitrateOnFly invoked")
@@ -638,6 +442,7 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
 
+    // reconnection loop
     private fun startReconnectionRetries() {
         if (reconnectionJob?.isActive == true) return
         reconnectionJob = CoroutineScope(Dispatchers.Main).launch {
@@ -651,12 +456,11 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
             }
             if (tryIsStreaming()) {
                 Log.i("MainActivity", "Reconnected after ${reconnectionAttempts} attempts")
-                Toast.makeText(this@MainActivity, "Reconnected", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivityCopy, "Reconnected", Toast.LENGTH_SHORT).show()
                 streamingSince = System.currentTimeMillis()
-                startStreamingTimer()
             } else {
                 Log.w("MainActivity", "Could not reconnect after $reconnectionAttempts attempts")
-                uiHandler.post { Toast.makeText(this@MainActivity, "Could not reconnect. The app will keep trying in background.", Toast.LENGTH_LONG).show() }
+                uiHandler.post { Toast.makeText(this@MainActivityCopy, "Could not reconnect. The app will keep trying in background.", Toast.LENGTH_LONG).show() }
             }
         }
     }
@@ -668,27 +472,24 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
     // ConnectChecker methods
 
     override fun onConnectionStarted(url: String) {}
-
     override fun onConnectionSuccess() {
         runOnUiThread {
-            Log.i("MainActivity", "onConnectionSuccess() called")
+            Toast.makeText(this, "Connection successful", Toast.LENGTH_SHORT).show()
             streamingSince = System.currentTimeMillis()
-            startStreamingTimer()
             networkStatusText.text = getString(R.string.network_connected)
             networkStatusText.setBackgroundColor(Color.parseColor("#8800AA00"))
-            Toast.makeText(this, "Connection successful", Toast.LENGTH_SHORT).show()
         }
     }
-
     override fun onConnectionFailed(reason: String) {
         runOnUiThread {
-            Log.e("MainActivity", "onConnectionFailed: $reason")
-            Toast.makeText(this, "Connection failed: $reason — trying to keep transmission (degraded mode)", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Connection failure: $reason", Toast.LENGTH_SHORT).show()
+            rtmpCamera2.stopStream()
+            rtmpCamera2.stopPreview()
+
+            // mark disconnected time
+            streamingSince = 0L
             networkStatusText.text = "Connection: failed"
             networkStatusText.setBackgroundColor(Color.parseColor("#88FF0000"))
-            streamingSince = 0L
-            stopStreamingTimer()
-
             try {
                 attemptAdaptation(300 * 1000, 480, 272, 12)
             } catch (t: Throwable) {
@@ -698,15 +499,12 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
             startReconnectionRetries()
         }
     }
-
     override fun onDisconnect() {
         runOnUiThread { Toast.makeText(this, "Offline", Toast.LENGTH_SHORT).show() }
     }
-
     override fun onAuthError() {
         runOnUiThread { Toast.makeText(this, "Authentication error", Toast.LENGTH_SHORT).show() }
     }
-
     override fun onAuthSuccess() {
         runOnUiThread { Toast.makeText(this, "Successful authentication", Toast.LENGTH_SHORT).show() }
     }
@@ -714,13 +512,12 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
     override fun onDestroy() {
         super.onDestroy()
         stopNetworkMonitor()
-        stopStreamingTimer()
         unregisterNetworkCallback()
         try {
             if (rtmpCamera2.isStreaming) {
                 rtmpCamera2.stopStream()
             }
-        } catch (_: UninitializedPropertyAccessException) {
+        } catch (e: UninitializedPropertyAccessException) {
         } catch (t: Throwable) {
             Log.w("MainActivity", "Error stopping stream in onDestroy: ${t.message}")
         }
@@ -798,52 +595,4 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
         }
         networkCallback = null
     }
-
-    // STREAMING TIMER
-
-    private fun startStreamingTimer() {
-        stopStreamingTimer()
-        timerJob = CoroutineScope(Dispatchers.Main).launch {
-            while (isActive) {
-                try {
-                    val streamingTimeMs = System.currentTimeMillis() - streamingSince
-                    val seconds = (streamingTimeMs / 1000) % 60
-                    val minutes = (streamingTimeMs / (1000 * 60)) % 60
-                    val hours = streamingTimeMs / (1000 * 60 * 60)
-
-                    val timeString = String.format(
-                        Locale.getDefault(),
-                        "Streaming: %02d:%02d:%02d",
-                        hours, minutes, seconds
-                    )
-
-                    uiHandler.post {
-                        try {
-                            streamingTimerText.text = timeString
-                        } catch (e: Exception) {
-                            Log.w("StreamingTimer", "Error updating timer text: ${e.message}")
-                        }
-                    }
-
-                    delay(1000)
-                } catch (e: Exception) {
-                    Log.w("StreamingTimer", "Error in timer loop: ${e.message}")
-                    break
-                }
-            }
-        }
-    }
-
-    private fun stopStreamingTimer() {
-        timerJob?.cancel()
-        timerJob = null
-        uiHandler.post {
-            try {
-                streamingTimerText.text = "Streaming: 00:00:00"
-            } catch (e: Exception) {
-                Log.w("StreamingTimer", "Error resetting timer text: ${e.message}")
-            }
-        }
-    }
 }
-
