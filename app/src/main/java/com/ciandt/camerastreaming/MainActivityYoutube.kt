@@ -34,6 +34,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
 
     private lateinit var networkStatusText: TextView
     private lateinit var bitrateText: TextView
+    private lateinit var streamingTimerText: TextView
 
     private var streamKey: String = "bmd8-msjr-zrvg-jzz9-6m10"
 
@@ -76,6 +77,8 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
 
     private var streamingSince: Long = 0L
     private var fallbackAttempted: Boolean = false
+    // Timer job para actualizar el UI cada segundo
+    private var timerJob: Job? = null
     // network change handling
     private lateinit var connectivityManager: ConnectivityManager
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -93,6 +96,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
         networkStatusText = findViewById(R.id.networkStatusText)
 
         bitrateText = findViewById(R.id.bitrateText)
+        streamingTimerText = findViewById(R.id.streamingTimerText)
 
         rtmpCamera2 = RtmpCamera2(openGlView, this)
         // register network callback to handle wifi <-> mobile transitions
@@ -262,6 +266,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
                     Toast.makeText(this, "Starting YouTube Live... isStreaming=$nowStreaming", Toast.LENGTH_SHORT).show()
                     if (nowStreaming) {
                         streamingSince = System.currentTimeMillis()
+                        startStreamingTimer()
                         fallbackAttempted = false
 
                     } else {
@@ -301,7 +306,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
                                             Toast.makeText(this, "Fallback failed - the stream did not start. Check logs/ConnectChecker.", Toast.LENGTH_LONG).show()
                                         } else {
                                             streamingSince = System.currentTimeMillis()
-
+                                            startStreamingTimer()
                                         }
                                     }, 3000)
                                 }
@@ -340,6 +345,8 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
     private fun stopStream() {
         // stop monitor
         stopNetworkMonitor()
+        // stop timer
+        stopStreamingTimer()
 
         if (rtmpCamera2.isStreaming) {
             rtmpCamera2.stopStream()
@@ -376,6 +383,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
                 Log.i("MainActivityYoutube", "Reconnected after ${reconnectionAttempts} attempts")
                 Toast.makeText(this@MainActivityYoutube, "Reconnected", Toast.LENGTH_SHORT).show()
                 streamingSince = System.currentTimeMillis()
+                startStreamingTimer()
             } else {
                 Log.w("MainActivityYoutube", "Could not reconnect after $reconnectionAttempts attempts")
                 uiHandler.post {
@@ -674,6 +682,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
             Log.i("MainActivityYoutube", "onConnectionSuccess() called")
             // mark that the stream is active from this moment to allow adaptations afterwards
             streamingSince = System.currentTimeMillis()
+            startStreamingTimer()
             networkStatusText.text = getString(R.string.network_connected)
             networkStatusText.setBackgroundColor(Color.parseColor("#8800AA00"))
             Toast.makeText(this, "Connected to YouTube", Toast.LENGTH_SHORT).show()
@@ -689,6 +698,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
             networkStatusText.setBackgroundColor(Color.parseColor("#88FF0000"))
             // mark disconnected time
             streamingSince = 0L
+            stopStreamingTimer()
 
             // aggressively lower quality to maintain transmission if possible
             try {
@@ -723,6 +733,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
     override fun onDestroy() {
         super.onDestroy()
         stopNetworkMonitor()
+        stopStreamingTimer()
         unregisterNetworkCallback()
         // don't forcibly stop stream here; if active, stop gracefully
         try {
@@ -826,5 +837,51 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
             Log.w("NetworkCallback", "unregisterNetworkCallback failed: ${t.message}")
         }
         networkCallback = null
+    }
+
+    // STREAMING TIMER
+
+    private fun startStreamingTimer() {
+        stopStreamingTimer()
+        timerJob = CoroutineScope(Dispatchers.Main).launch {
+            while (isActive) {
+                try {
+                    val streamingTimeMs = System.currentTimeMillis() - streamingSince
+                    val seconds = (streamingTimeMs / 1000) % 60
+                    val minutes = (streamingTimeMs / (1000 * 60)) % 60
+                    val hours = streamingTimeMs / (1000 * 60 * 60)
+
+                    val timeString = String.format(
+                        "Streaming: %02d:%02d:%02d",
+                        hours, minutes, seconds
+                    )
+
+                    uiHandler.post {
+                        try {
+                            streamingTimerText.text = timeString
+                        } catch (e: Exception) {
+                            Log.w("StreamingTimer", "Error updating timer text: ${e.message}")
+                        }
+                    }
+
+                    delay(1000)
+                } catch (e: Exception) {
+                    Log.w("StreamingTimer", "Error in timer loop: ${e.message}")
+                    break
+                }
+            }
+        }
+    }
+
+    private fun stopStreamingTimer() {
+        timerJob?.cancel()
+        timerJob = null
+        uiHandler.post {
+            try {
+                streamingTimerText.text = "Streaming: 00:00:00"
+            } catch (e: Exception) {
+                Log.w("StreamingTimer", "Error resetting timer text: ${e.message}")
+            }
+        }
     }
 }

@@ -21,7 +21,21 @@
         android:layout_alignParentStart="true"
         android:layout_margin="8dp" />
 
-    <!-- Current bitrate indicator (top-right) -->
+    <!-- Streaming timer indicator (below network status) -->
+    <TextView
+        android:id="@+id/streamingTimerText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:text="Streaming: 00:00:00"
+        android:textColor="@android:color/white"
+        android:textStyle="bold"
+        android:background="#66000000"
+        android:layout_below="@id/networkStatusText"
+        android:layout_alignParentStart="true"
+        android:layout_margin="8dp" />
+
+    <!-- Current bitrate indicator (below streaming timer) -->
     <TextView
         android:id="@+id/bitrateText"
         android:layout_width="wrap_content"
@@ -30,8 +44,8 @@
         android:text="@string/bitrate_label"
         android:textColor="@android:color/white"
         android:background="#66000000"
-        android:layout_alignParentTop="true"
-        android:layout_alignParentEnd="true"
+        android:layout_below="@id/streamingTimerText"
+        android:layout_alignParentStart="true"
         android:layout_margin="8dp" />
 
     <!-- Stop button fixed at the bottom -->
@@ -44,7 +58,7 @@
         android:layout_centerHorizontal="true"
         android:layout_marginBottom="16dp" />
 
-    <!-- Start button positioned above Stop so it is shown first -->
+    <!-- Start button positioned above Stop button -->
     <Button
         android:id="@+id/startButton"
         android:layout_width="wrap_content"
