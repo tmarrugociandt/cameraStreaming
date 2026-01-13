@@ -55,6 +55,13 @@ fun LaunchContent(modifier: Modifier = Modifier) {
             val intent = Intent(context, MainActivityYoutube::class.java)
             context.startActivity(intent)
         }, modifier = Modifier.padding(top = 16.dp)) {
+            Text(text = "PoC stream RTMPS Youtube with E2EE")
+        }
+        // Second button: opens the YouTube/RTMPS activity
+        Button(onClick = {
+            val intent = Intent(context, MainActivityYoutubeCopy::class.java)
+            context.startActivity(intent)
+        }, modifier = Modifier.padding(top = 16.dp)) {
             Text(text = "PoC stream RTMPS Youtube")
         }
     }

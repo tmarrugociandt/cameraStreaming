@@ -36,6 +36,10 @@
             android:name=".MainActivityYoutube"
             android:exported="true"
              />
+        <activity
+            android:name=".MainActivityYoutubeCopy"
+            android:exported="true"
+            />
     </application>
 
 </manifest>
