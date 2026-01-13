@@ -35,6 +35,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
     private lateinit var networkStatusText: TextView
     private lateinit var bitrateText: TextView
     private lateinit var streamingTimerText: TextView
+    private lateinit var lagIndicatorText: TextView
 
     private var streamKey: String = "bmd8-msjr-zrvg-jzz9-6m10"
 
@@ -97,6 +98,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
 
         bitrateText = findViewById(R.id.bitrateText)
         streamingTimerText = findViewById(R.id.streamingTimerText)
+        lagIndicatorText = findViewById(R.id.lagIndicatorText)
 
         rtmpCamera2 = RtmpCamera2(openGlView, this)
         // register network callback to handle wifi <-> mobile transitions
@@ -495,7 +497,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
             throughputBps >= thresholdPoor -> "Fair"
             else -> "Poor"
         }
-        networkStatusText.text = "Network: $readable (rtt=${rttMs}ms)"
+        networkStatusText.text = "Network: $readable"
         // change background color according to quality
         when (readable) {
             "Excellent" -> networkStatusText.setBackgroundColor(Color.parseColor("#8800AA00")) // light green
@@ -505,6 +507,16 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
             else -> networkStatusText.setBackgroundColor(Color.parseColor("#66000000"))
         }
         bitrateText.text = "Bitrate: ${videoBitrate / 1000} kbps"
+
+        // Update lag indicator with color based on latency
+        lagIndicatorText.text = "Lag: ${rttMs}ms"
+        val lagColor = when {
+            rttMs < 50 -> "#8800AA00"        // Excellent (green)
+            rttMs < 100 -> "#88FFD700"       // Good (yellow)
+            rttMs < 200 -> "#88FF8C00"       // Fair (orange)
+            else -> "#88FF0000"              // Poor (red)
+        }
+        lagIndicatorText.setBackgroundColor(Color.parseColor(lagColor))
 
         // decide adaptation
         val now = System.currentTimeMillis()
