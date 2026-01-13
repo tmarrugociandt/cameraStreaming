@@ -28,8 +28,11 @@ object StreamingConfig {
     /** Threshold for good network: 50ms <= latency < 100ms */
     const val RTT_THRESHOLD_GOOD = 100
 
-    /** Threshold for fair network: 100ms <= latency < 200ms */
-    const val RTT_THRESHOLD_FAIR = 200
+    /** Threshold for fair network: 100ms <= latency < 150ms */
+    const val RTT_THRESHOLD_FAIR = 150
+
+    /** Threshold for poor network: 150ms <= latency < 300ms */
+    const val RTT_THRESHOLD_POOR = 150
 
     /** Threshold for very poor network: latency >= 300ms */
     const val RTT_THRESHOLD_VERY_POOR = 300

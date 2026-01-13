@@ -279,25 +279,25 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
                     Log.w("MainActivityYoutube", "Very poor network detected (RTT>=${StreamingConfig.RTT_THRESHOLD_VERY_POOR}ms). Using minimum bitrate: ${StreamingConfig.BITRATE_VERY_POOR / 1000} kbps")
                     Toast.makeText(this, "Network very poor - using ${StreamingConfig.BITRATE_VERY_POOR / 1000} kbps", Toast.LENGTH_SHORT).show()
                 }
-                rttMs >= StreamingConfig.RTT_THRESHOLD_FAIR -> {
+                rttMs >= StreamingConfig.RTT_THRESHOLD_POOR -> {
                     // Poor connection
                     videoBitrate = StreamingConfig.BITRATE_POOR
                     width = StreamingConfig.WIDTH_POOR
                     height = StreamingConfig.HEIGHT_POOR
                     fps = StreamingConfig.FPS_POOR
-                    Log.w("MainActivityYoutube", "Poor network detected (RTT>=${StreamingConfig.RTT_THRESHOLD_FAIR}ms). Using ${StreamingConfig.BITRATE_POOR / 1000} kbps")
+                    Log.w("MainActivityYoutube", "Poor network detected (RTT>=${StreamingConfig.RTT_THRESHOLD_POOR}ms). Using ${StreamingConfig.BITRATE_POOR / 1000} kbps")
                     Toast.makeText(this, "Network poor - using ${StreamingConfig.BITRATE_POOR / 1000} kbps", Toast.LENGTH_SHORT).show()
                 }
-                rttMs >= StreamingConfig.RTT_THRESHOLD_GOOD -> {
+                rttMs >= StreamingConfig.RTT_THRESHOLD_FAIR -> {
                     // Fair connection
                     videoBitrate = StreamingConfig.BITRATE_FAIR
                     width = StreamingConfig.WIDTH_FAIR
                     height = StreamingConfig.HEIGHT_FAIR
                     fps = StreamingConfig.FPS_FAIR
-                    Log.w("MainActivityYoutube", "Fair network detected (RTT>=${StreamingConfig.RTT_THRESHOLD_GOOD}ms). Using ${StreamingConfig.BITRATE_FAIR / 1000} kbps")
+                    Log.w("MainActivityYoutube", "Fair network detected (RTT>=${StreamingConfig.RTT_THRESHOLD_FAIR}ms). Using ${StreamingConfig.BITRATE_FAIR / 1000} kbps")
                     Toast.makeText(this, "Network fair - using ${StreamingConfig.BITRATE_FAIR / 1000} kbps", Toast.LENGTH_SHORT).show()
                 }
-                rttMs >= StreamingConfig.RTT_THRESHOLD_EXCELLENT -> {
+                rttMs >= StreamingConfig.RTT_THRESHOLD_GOOD -> {
                     // Good connection
                     videoBitrate = StreamingConfig.BITRATE_GOOD
                     Log.i("MainActivityYoutube", "Good network detected. Using ${StreamingConfig.BITRATE_GOOD / 1000} kbps")
