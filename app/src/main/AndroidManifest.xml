@@ -33,11 +33,11 @@
 
         </activity>
         <activity
-            android:name=".MainActivityYoutube"
+            android:name=".MainActivityYoutubeE2EE"
             android:exported="true"
              />
         <activity
-            android:name=".MainActivityYoutubeCopy"
+            android:name=".MainActivityYoutube"
             android:exported="true"
             />
     </application>

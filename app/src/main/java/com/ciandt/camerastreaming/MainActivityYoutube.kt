@@ -1,7 +1,6 @@
 package com.ciandt.camerastreaming
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
@@ -25,6 +24,8 @@ import com.pedro.library.view.OpenGlView
 import kotlinx.coroutines.*
 import java.net.InetSocketAddress
 import java.net.Socket
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
@@ -102,11 +103,8 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
 
         rtmpCamera2 = RtmpCamera2(openGlView, this)
         // register network callback to handle wifi <-> mobile transitions
-        connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         registerNetworkCallback()
-
-        // Initialize E2EE encryption for video streaming
-        initializeVideoEncryption()
 
         startButton.setOnClickListener {
             if (!rtmpCamera2.isStreaming) {
@@ -128,14 +126,6 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
         // initialize bitrate indicator
         bitrateText.text = getString(R.string.bitrate_label)
     }
-
-
-
-
-
-    // Demo: append encrypted bytes to a local file (so you can inspect transitively)
-
-
 
     private fun startStream() {
         // First, check network quality and adapt bitrate BEFORE starting
@@ -183,7 +173,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
             // if direct view size not accepted, try scaled reductions for this rotation
             var candidateW = candW
             var candidateH = candH
-            val longest = kotlin.math.max(candidateW, candidateH)
+            val longest = max(candidateW, candidateH)
             if (longest > maxSide) {
                 val scale = maxSide.toFloat() / longest.toFloat()
                 candidateW = even((candidateW * scale).toInt())
@@ -617,7 +607,7 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
 
     private fun attemptAdaptation(targetBitrate: Int, targetW: Int, targetH: Int, targetFps: Int) {
         // Avoid flapping: only adapt if significant change
-        if (kotlin.math.abs(videoBitrate - targetBitrate) < 200 * 1000 && width == targetW && height == targetH && fps == targetFps) return
+        if (abs(videoBitrate - targetBitrate) < 200 * 1000 && width == targetW && height == targetH && fps == targetFps) return
 
         lastAdaptationTime = System.currentTimeMillis()
         Log.i("Adaptation", "Adapting to bitrate=$targetBitrate, ${targetW}x${targetH}@${targetFps}")
@@ -811,7 +801,6 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
         super.onDestroy()
         stopNetworkMonitor()
         stopStreamingTimer()
-        clearVideoEncryption()
         unregisterNetworkCallback()
         // don't forcibly stop stream here; if active, stop gracefully
         try {
@@ -916,113 +905,6 @@ class MainActivityYoutube : AppCompatActivity(), ConnectChecker {
         }
         networkCallback = null
     }
-
-    // ========== VIDEO ENCRYPTION ==========
-
-    /**
-     * Initialize video encryption with E2EE
-     * Call this in onCreate() to set up AES-256-GCM encryption
-     */
-    private fun initializeVideoEncryption() {
-        try {
-            // Option 1: Initialize with a password (change to your secure password)
-            val initSuccess = VideoEncryptionInterceptor.initialize("streaming-secure-key-2026")
-
-            if (initSuccess) {
-                Log.i("MainActivityYoutube", "Video encryption initialized successfully")
-                Toast.makeText(this, "E2EE Encryption initialized", Toast.LENGTH_SHORT).show()
-            } else {
-                Log.w("MainActivityYoutube", "Failed to initialize video encryption")
-                Toast.makeText(this, "Encryption initialization failed", Toast.LENGTH_SHORT).show()
-            }
-        } catch (e: Exception) {
-            Log.e("MainActivityYoutube", "Exception initializing encryption: ${e.message}")
-        }
-    }
-
-    /**
-     * Enable or disable video frame encryption
-     * Call this to toggle encryption on/off during streaming
-     */
-    fun setVideoEncryptionEnabled(enabled: Boolean) {
-        VideoEncryptionInterceptor.setEncryptionEnabled(enabled)
-        val status = if (enabled) "ENABLED" else "DISABLED"
-        Log.i("MainActivityYoutube", "Video encryption $status")
-        Toast.makeText(this, "Encryption $status", Toast.LENGTH_SHORT).show()
-    }
-
-    /**
-     * Get current encryption statistics
-     * Use this to monitor encryption performance
-     */
-    fun getEncryptionStats(): String {
-        val stats = VideoEncryptionInterceptor.getStatistics()
-        return """
-            Encryption Status: ${if (stats.isEnabled) "ENABLED" else "DISABLED"}
-            Total Frames: ${stats.totalFramesProcessed}
-            Encrypted: ${stats.encryptedFrames} (${stats.encryptionSuccessRate}%)
-            Overhead: ${stats.totalOverheadBytes} bytes total
-            Avg/Frame: ${stats.averageOverheadPerFrame} bytes
-        """.trimIndent()
-    }
-
-    /**
-     * Process a video frame for encryption
-     * This should be called for each frame before sending to RTMP
-     *
-     * Usage:
-     * val frameData = getCameraFrameData()
-     * val processedFrame = processVideoFrameWithEncryption(frameData, frameIndex)
-     * rtmpCamera2.sendFrameData(processedFrame.data)
-     */
-    fun processVideoFrameWithEncryption(frameData: ByteArray, frameIndex: Long): ProcessedFrame {
-        return VideoEncryptionInterceptor.processFrame(frameData, frameIndex)
-    }
-
-    /**
-     * Get the encryption key as Base64 for sharing/backup
-     * Useful for securely storing or transmitting the decryption key
-     */
-    fun getEncryptionKeyAsBase64(): String? {
-        return VideoEncryption.getKeyAsBase64()
-    }
-
-    /**
-     * Set encryption key from Base64 string
-     * Use this to restore encryption with a previously shared key
-     */
-    fun setEncryptionKeyFromBase64(keyBase64: String): Boolean {
-        return VideoEncryption.setKeyFromBase64(keyBase64)
-    }
-
-    /**
-     * Generate a new random encryption key
-     * Call this if you want a fresh key without password derivation
-     */
-    fun generateNewEncryptionKey(): Boolean {
-        return VideoEncryption.generateNewKey()
-    }
-
-    /**
-     * Log and display encryption statistics
-     * Useful for debugging and monitoring encryption performance
-     */
-    fun logEncryptionStatistics() {
-        val statsString = getEncryptionStats()
-        Log.d("MainActivityYoutube", "Encryption Statistics:\n$statsString")
-        Toast.makeText(this, statsString, Toast.LENGTH_LONG).show()
-    }
-
-    /**
-     * Clear encryption resources when stopping
-     * Call this in onDestroy() to properly clean up
-     */
-    fun clearVideoEncryption() {
-        VideoEncryptionInterceptor.clear()
-        Log.i("MainActivityYoutube", "Video encryption resources cleared")
-    }
-
-    // ...existing code...
 
     // STREAMING TIMER
 

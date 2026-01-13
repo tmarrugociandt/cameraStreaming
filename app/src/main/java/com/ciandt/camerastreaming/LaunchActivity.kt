@@ -47,23 +47,23 @@ fun LaunchContent(modifier: Modifier = Modifier) {
             val intent = Intent(context, MainActivity::class.java)
             context.startActivity(intent)
         }) {
-            Text(text = "PoC Stream AWS")
+            Text(text = "PoC Stream RTMP AWS")
         }
-
         // Second button: opens the YouTube/RTMPS activity
         Button(onClick = {
             val intent = Intent(context, MainActivityYoutube::class.java)
             context.startActivity(intent)
         }, modifier = Modifier.padding(top = 16.dp)) {
-            Text(text = "PoC stream RTMPS Youtube with E2EE")
+            Text(text = "PoC stream RTMPS Youtube")
         }
         // Second button: opens the YouTube/RTMPS activity
         Button(onClick = {
-            val intent = Intent(context, MainActivityYoutubeCopy::class.java)
+            val intent = Intent(context, MainActivityYoutubeE2EE::class.java)
             context.startActivity(intent)
         }, modifier = Modifier.padding(top = 16.dp)) {
-            Text(text = "PoC stream RTMPS Youtube")
+            Text(text = "PoC stream RTMPS Youtube with E2EE")
         }
+
     }
 }
 
