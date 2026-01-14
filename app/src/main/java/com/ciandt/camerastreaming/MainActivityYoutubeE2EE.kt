@@ -86,6 +86,9 @@ class MainActivityYoutubeE2EE : AppCompatActivity(), ConnectChecker {
     private var networkLost: Boolean = false
     private var hadStreamingBeforeNetworkLoss: Boolean = false
 
+    // Encrypted RTMP stream wrapper for additional security layer
+    private var encryptedRtmpStream: EncryptedRtmpOutputStream? = null
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -322,6 +325,10 @@ class MainActivityYoutubeE2EE : AppCompatActivity(), ConnectChecker {
             try {
                 if (!rtmpCamera2.isStreaming) {
                     Log.d("MainActivityYoutube", "Calling rtmpCamera2.startStream with URL=${getRtmpUrl()} | Bitrate=${videoBitrate / 1000}kbps | Resolution=${width}x${height}@${fps}fps")
+
+                    // Initialize encrypted RTMP stream
+                    initializeEncryptedRtmpStream(getRtmpUrl())
+
                     rtmpCamera2.startStream(getRtmpUrl())
                     // registrar si quedó en streaming
                     val nowStreaming = try { rtmpCamera2.isStreaming } catch (_: Exception) { false }
@@ -405,15 +412,78 @@ class MainActivityYoutubeE2EE : AppCompatActivity(), ConnectChecker {
         }
     }
 
+    /**
+     * Initialize EncryptedRtmpOutputStream to add encryption layer to RTMP stream
+     */
+    private fun initializeEncryptedRtmpStream(rtmpUrl: String) {
+        try {
+            val uri = android.net.Uri.parse(rtmpUrl)
+            val host = uri.host ?: "a.rtmps.youtube.com"
+            val port = uri.port.takeIf { it > 0 } ?: 443
+
+            Log.d("MainActivityYoutube", "Initializing encrypted RTMP stream: $host:$port")
+
+            val socket = Socket(host, port)
+            val baseOutputStream = socket.getOutputStream()
+
+            encryptedRtmpStream = EncryptedRtmpOutputStream(baseOutputStream)
+            encryptedRtmpStream?.setEncryptionEnabled(true)
+
+            Log.i("MainActivityYoutube", "EncryptedRtmpOutputStream initialized successfully")
+
+        } catch (e: Exception) {
+            Log.e("MainActivityYoutube", "Error initializing encrypted stream: ${e.message}")
+            encryptedRtmpStream = null
+        }
+    }
+
+    /**
+     * Send video frame through encrypted RTMP stream
+     */
+    private fun sendEncryptedVideoFrame(frameData: ByteArray) {
+        try {
+            encryptedRtmpStream?.let {
+                it.write(frameData)
+                it.flush()
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivityYoutube", "Error sending encrypted frame: ${e.message}")
+        }
+    }
+
+    /**
+     * Get encrypted RTMP stream statistics
+     */
+    private fun getEncryptedRtmpStats(): String? {
+        return encryptedRtmpStream?.let {
+            """
+            === Encrypted RTMP Stream Stats ===
+            Total bytes processed: ${it.getTotalBytesProcessed()}
+            Encrypted bytes: ${it.getEncryptedBytesCount()}
+            Encryption ratio: ${String.format("%.2f", it.getEncryptionRatio())}%
+            """.trimIndent()
+        }
+    }
+
     private fun stopStream() {
-        // stop monitor
-        stopNetworkMonitor()
         // stop timer
         stopStreamingTimer()
 
         if (rtmpCamera2.isStreaming) {
             rtmpCamera2.stopStream()
         }
+
+        // Close encrypted RTMP stream
+        encryptedRtmpStream?.let {
+            try {
+                it.close()
+                Log.i("MainActivityYoutube", "Encrypted RTMP stream closed")
+            } catch (e: Exception) {
+                Log.e("MainActivityYoutube", "Error closing encrypted stream: ${e.message}")
+            }
+        }
+        encryptedRtmpStream = null
+
         fallbackAttempted = false
         // stop any reconnection loop when user explicitly stops
         reconnectionJob?.cancel()
@@ -523,6 +593,14 @@ class MainActivityYoutubeE2EE : AppCompatActivity(), ConnectChecker {
                 val streamingState = try { if (this@MainActivityYoutubeE2EE::rtmpCamera2.isInitialized) rtmpCamera2.isStreaming else false } catch (_: Exception) { false }
 
                 Log.d("NetMonitor", "throughput=$throughput B/s rtt=${rttMs}ms loss=$loss isStreaming=$streamingState streamingSince=$streamingSince")
+
+                // Log encrypted RTMP stream statistics
+                encryptedRtmpStream?.let { stream ->
+                    val encryptedBytes = stream.getEncryptedBytesCount()
+                    val totalBytes = stream.getTotalBytesProcessed()
+                    val ratio = stream.getEncryptionRatio()
+                    Log.d("MainActivityYoutube", "RTMP Encryption: $totalBytes bytes total, $encryptedBytes encrypted (${String.format("%.1f", ratio)}%)")
+                }
 
                 // Post results to UI and adapt
                 uiHandler.post {
@@ -813,6 +891,18 @@ class MainActivityYoutubeE2EE : AppCompatActivity(), ConnectChecker {
         stopStreamingTimer()
         clearVideoEncryption()
         unregisterNetworkCallback()
+
+        // Close encrypted RTMP stream
+        encryptedRtmpStream?.let {
+            try {
+                it.close()
+                Log.i("MainActivityYoutube", "Encrypted RTMP stream closed in onDestroy")
+            } catch (e: Exception) {
+                Log.e("MainActivityYoutube", "Error closing encrypted stream in onDestroy: ${e.message}")
+            }
+        }
+        encryptedRtmpStream = null
+
         // don't forcibly stop stream here; if active, stop gracefully
         try {
             if (rtmpCamera2.isStreaming) {
@@ -1022,7 +1112,6 @@ class MainActivityYoutubeE2EE : AppCompatActivity(), ConnectChecker {
         Log.i("MainActivityYoutube", "Video encryption resources cleared")
     }
 
-    // ...existing code...
 
     // STREAMING TIMER
 
