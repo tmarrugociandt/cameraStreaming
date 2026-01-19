@@ -42,8 +42,10 @@ class OTAViewModel(application: Application) : AndroidViewModel(application) {
     fun checkForUpdates(dirPath: String? = null) {
         viewModelScope.launch {
             try {
-                // Use default app external files directory if no path provided
-                val searchPath = dirPath ?: "${getApplication<Application>().getExternalFilesDir(null)}/ota_updates"
+                // Use /storage/emulated/0/Download/ota_updates as default path
+                val searchPath = dirPath ?: android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS
+                ).absolutePath + "/ota_updates"
 
                 _uiState.value = UIState.Checking
                 OTALogger.i("Checking for updates in: $searchPath")
@@ -175,7 +177,9 @@ class OTAViewModel(application: Application) : AndroidViewModel(application) {
      * Gets APK storage path for local updates
      */
     fun getAPKStoragePath(): String {
-        return "/sdcard/Download/"
+        return android.os.Environment.getExternalStoragePublicDirectory(
+            android.os.Environment.DIRECTORY_DOWNLOADS
+        ).absolutePath + "/ota_updates"
     }
 
     /**

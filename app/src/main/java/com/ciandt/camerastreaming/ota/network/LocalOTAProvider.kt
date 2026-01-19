@@ -44,6 +44,11 @@ class LocalOTAProvider(private val context: Context) {
             // Method 1: listFiles()
             val allFiles = directory.listFiles()
             OTALogger.i("listFiles() returned: ${allFiles?.size ?: "null"} files")
+            if (allFiles != null) {
+                allFiles.forEach { file ->
+                    OTALogger.i("  listFiles: ${file.name} (isFile: ${file.isFile}, readable: ${file.canRead()})")
+                }
+            }
 
             // Method 2: list()
             val fileNames = directory.list()
@@ -51,6 +56,9 @@ class LocalOTAProvider(private val context: Context) {
             if (fileNames != null) {
                 fileNames.forEach { name ->
                     OTALogger.i("  - $name")
+                    // Try to access the file to verify it exists
+                    val file = File(directory, name)
+                    OTALogger.i("    File exists: ${file.exists()}, isFile: ${file.isFile}, readable: ${file.canRead()}")
                 }
             }
 
@@ -66,14 +74,25 @@ class LocalOTAProvider(private val context: Context) {
 
             if (filesArray.isEmpty()) {
                 OTALogger.w("Directory appears empty")
-                OTALogger.i("Trying to create test file to verify write permissions...")
-                try {
-                    val testFile = File(directory, "test.txt")
-                    testFile.createNewFile()
-                    OTALogger.i("Test file created successfully - directory is writable")
-                    testFile.delete()
-                } catch (e: Exception) {
-                    OTALogger.e("Cannot create test file: ${e.message}")
+                // Try using list() as fallback
+                if (fileNames != null && fileNames.isNotEmpty()) {
+                    OTALogger.i("Using list() results instead of listFiles()")
+                    fileNames.forEach { fileName ->
+                        val file = File(directory, fileName)
+                        if (file.isFile) {
+                            OTALogger.i("Added from list(): ${file.name}")
+                        }
+                    }
+                } else {
+                    OTALogger.i("Trying to create test file to verify write permissions...")
+                    try {
+                        val testFile = File(directory, "test.txt")
+                        testFile.createNewFile()
+                        OTALogger.i("Test file created successfully - directory is writable")
+                        testFile.delete()
+                    } catch (e: Exception) {
+                        OTALogger.e("Cannot create test file: ${e.message}")
+                    }
                 }
             }
 
@@ -92,6 +111,18 @@ class LocalOTAProvider(private val context: Context) {
                 if (isApk && isNotTemp && isReadable) {
                     OTALogger.i("✓ ACCEPTED: ${file.name}")
                     apkFiles.add(file)
+                }
+            }
+
+            // Fallback: if listFiles() returned nothing but list() returned items, try again with list()
+            if (apkFiles.isEmpty() && fileNames != null && fileNames.isNotEmpty()) {
+                OTALogger.i("Fallback: Using list() to find APK files")
+                fileNames.forEach { fileName ->
+                    val file = File(directory, fileName)
+                    if (file.isFile && file.extension.equals("apk", ignoreCase = true) && file.canRead()) {
+                        OTALogger.i("✓ FALLBACK ACCEPTED: ${file.name}")
+                        apkFiles.add(file)
+                    }
                 }
             }
 

@@ -4,5 +4,7 @@
     <external-files-path name="ota_updates" path="ota_updates" />
     <!-- Cache directory -->
     <cache-path name="cache" path="." />
+    <!-- Path for downloads directory (internal storage) - /storage/emulated/0/Download/ota_updates -->
+    <external-path name="ota_downloads" path="Download/ota_updates" />
 </paths>
 

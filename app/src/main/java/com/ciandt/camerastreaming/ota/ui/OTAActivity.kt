@@ -1,5 +1,8 @@
 package com.ciandt.camerastreaming.ota.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.LinearLayout
@@ -8,6 +11,8 @@ import android.widget.TextView
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.ciandt.camerastreaming.R
 import com.ciandt.camerastreaming.ota.utils.OTALogger
@@ -39,8 +44,41 @@ class OTAActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_ota)
 
+        requestRequiredPermissions()
         initializeViews()
         setupObservers()
+    }
+
+    private fun requestRequiredPermissions() {
+        val permissionsNeeded = mutableListOf<String>()
+
+        // Check for READ_EXTERNAL_STORAGE
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            permissionsNeeded.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+
+        // For Android 14+, add READ_MEDIA_VISUAL_USER_SELECTED
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                permissionsNeeded.add("android.permission.READ_MEDIA_VISUAL_USER_SELECTED")
+            }
+        }
+
+        if (permissionsNeeded.isNotEmpty()) {
+            ActivityCompat.requestPermissions(
+                this,
+                permissionsNeeded.toTypedArray(),
+                PERMISSION_REQUEST_CODE
+            )
+        }
     }
 
     private fun initializeViews() {
@@ -205,6 +243,39 @@ class OTAActivity : AppCompatActivity() {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            var allPermissionsGranted = true
+            for (grantResult in grantResults) {
+                if (grantResult != PackageManager.PERMISSION_GRANTED) {
+                    allPermissionsGranted = false
+                    break
+                }
+            }
+
+            if (allPermissionsGranted) {
+                OTALogger.i("All permissions granted")
+            } else {
+                OTALogger.w("Some permissions were denied")
+                AlertDialog.Builder(this)
+                    .setTitle("Permissions needed")
+                    .setMessage("This app needs permission to read files from your device storage to check for updates.")
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+        }
+    }
+
+    companion object {
+        private const val PERMISSION_REQUEST_CODE = 100
     }
 }
 
