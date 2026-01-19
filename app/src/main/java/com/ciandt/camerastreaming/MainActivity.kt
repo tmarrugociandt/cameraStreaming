@@ -420,9 +420,20 @@ class MainActivity : AppCompatActivity(), ConnectChecker {
     }
 
     private fun requestPermissions() {
+        val permissions = mutableListOf(
+            Manifest.permission.CAMERA,
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        )
+
+        // Add READ_MEDIA_VIDEO for Android 13+ (API 33)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.READ_MEDIA_VIDEO)
+        }
+
         ActivityCompat.requestPermissions(
             this,
-            arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO),
+            permissions.toTypedArray(),
             100
         )
     }

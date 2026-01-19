@@ -81,4 +81,60 @@
     <string name="bitrate_label">Bitrate: --</string>
     <string name="network_connected">Network: connected</string>
 
+    <!-- OTA Update strings -->
+    <string name="ota_activity_title">OTA Updates</string>
+    <string name="update_progress_title">Update Progress</string>
+    <string name="check_updates">Check for Updates</string>
+    <string name="download_update">Download Update</string>
+    <string name="install_update">Install Update</string>
+    <string name="cancel">Cancel</string>
+    <string name="pause">Pause</string>
+    <string name="update_available">Update Available</string>
+    <string name="no_updates">No Updates Available</string>
+    <string name="checking_updates">Checking for updates...</string>
+    <string name="downloading">Downloading...</string>
+    <string name="verifying">Verifying...</string>
+    <string name="installing">Installing...</string>
+    <string name="ready_to_install">Ready to Install</string>
+    <!-- OTA Activity Strings -->
+    <string name="ota_title">Local OTA Update Manager</string>
+    <string name="status_label">Status:</string>
+    <string name="ready_text">Ready to check for updates</string>
+    <string name="info_label">Information:</string>
+    <string name="waiting_text">Waiting for action...</string>
+    <string name="check_updates_button">Check Updates</string>
+    <string name="install_button">Install</string>
+    <string name="cleanup_button">Cleanup</string>
+
+    <!-- Status Messages -->
+    <string name="no_updates_available">No updates available</string>
+    <string name="preparing_apk">Preparing APK for installation...</string>
+    <string name="apk_ready">APK is ready for installation</string>
+    <string name="installing_apk">Installing APK...</string>
+    <string name="install_started">Installation has been initiated</string>
+    <string name="error_occurred">Error: %s</string>
+    <string name="cleanup_completed">Cleanup completed</string>
+
+    <!-- Error Messages -->
+    <string name="apk_not_found">APK file not found</string>
+    <string name="apk_validation_failed">APK validation failed</string>
+    <string name="prepare_apk_failed">Failed to prepare APK</string>
+    <string name="install_failed">Failed to start installation</string>
+    <string name="error_checking_updates">Error checking for updates</string>
+    <string name="error_loading_update">Error loading update</string>
+    <string name="error_preparing_apk">Error preparing APK</string>
+    <string name="error_installing_apk">Error installing APK</string>
+    <string name="cleanup_error">Cleanup error: %s</string>
+
+    <!-- Dialog Messages -->
+    <string name="update_dialog_title">Update Available</string>
+    <string name="update_dialog_message">Version %s is available. Do you want to install it?</string>
+    <string name="update_dialog_positive">Install</string>
+    <string name="update_dialog_negative">Cancel</string>
+
+    <!-- Info Messages -->
+    <string name="version_label">Version: %s</string>
+    <string name="size_label">Size: %s MB</string>
+    <string name="description_label">Description: %s</string>
+    <string name="release_notes_label">Release Notes: %s</string>
 </resources>

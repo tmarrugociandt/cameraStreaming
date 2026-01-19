@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.ciandt.camerastreaming.ota.ui.OTAActivity
 import com.ciandt.camerastreaming.ui.theme.RTMPDemoTheme
 
 class LaunchActivity : ComponentActivity() {
@@ -49,19 +50,27 @@ fun LaunchContent(modifier: Modifier = Modifier) {
         }) {
             Text(text = "PoC Stream RTMP AWS")
         }
-        // Second button: opens the YouTube/RTMPS activity
+        // Button that opens the YouTube/RTMPS activity
         Button(onClick = {
             val intent = Intent(context, MainActivityYoutube::class.java)
             context.startActivity(intent)
         }, modifier = Modifier.padding(top = 16.dp)) {
             Text(text = "PoC stream RTMPS Youtube")
         }
-        // Second button: opens the YouTube/RTMPS activity
+        // Button that opens the YouTube/RTMPS activity with E2EE
         Button(onClick = {
             val intent = Intent(context, MainActivityYoutubeE2EE::class.java)
             context.startActivity(intent)
         }, modifier = Modifier.padding(top = 16.dp)) {
             Text(text = "PoC stream RTMPS Youtube with E2EE")
+        }
+
+        // OTA Updates button
+        Button(onClick = {
+            val intent = Intent(context, OTAActivity::class.java)
+            context.startActivity(intent)
+        }, modifier = Modifier.padding(top = 16.dp)) {
+            Text(text = "Manage OTA Updates")
         }
 
     }
